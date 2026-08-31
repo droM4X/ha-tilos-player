@@ -22,7 +22,7 @@ Bubble Card-ot érdemes feltenni a HACS-ból, mert szép legörülőket tud prez
 - Műsorlista frissítése (újraindításkor és 12 óránként lefut), műsor választás, lejátszás.
 - Örvendezés a remek muzsikáknak :)
 
-## Pikk Ász
+## 🂡 Pikk Ász
 A kártya yaml fájlja alant, kézi hozzáadás.
 
 ```
@@ -108,5 +108,7 @@ cards:
               border-radius: 16px;
             }
 ```
+> [!TIP]
+> A szakasz színének feketére állításával lehet elérni a fenti kinézetet. Ezt utólag kell beállítani az adott szakaszra ahol a kártya van. Szakasz szerkesztése, háttér szín fekete, átlátszóság 100%.
 
-Tip: A szakasz színének feketére állításával lehet elérni a fenti kinézetet. Ezt utólag kell beállítani az adott szakaszra ahol a kártya van. Szakasz szerkesztése, háttér szín fekete, átlátszóság 100%.
+<small>Disclaimer: Természetesen AI-val készült, GLM 5.3 Flash volt az elkövető. Korábban összeraktam ezt sh scriptekkel és egyéb patkolásokkal, ez az átírat arra alapul, hogy könnyebben megosztható legyen.</small>
