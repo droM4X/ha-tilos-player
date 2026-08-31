@@ -1,0 +1,12 @@
+{
+  "domain": "tilos_player",
+  "name": "Tilos Radio Player",
+  "codeowners": ["@droM4X"],
+  "config_flow": true,
+  "documentation": "https://github.com/droM4X/ha-tilos-player",
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/droM4X/ha-tilos-player/issues",
+  "requirements": [],
+  "version": "1.0.0"
+}

@@ -1,0 +1,25 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Tilos Rádió",
+        "description": "Configure where the selected show's episodes should play and how far back the episode list should reach.",
+        "data": {
+          "media_player_entity": "Media player to play on",
+          "lookback_days": "Episode lookback (days)"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Tilos Rádió options",
+        "data": {
+          "media_player_entity": "Media player to play on",
+          "lookback_days": "Episode lookback (days)"
+        }
+      }
+    }
+  }
+}
