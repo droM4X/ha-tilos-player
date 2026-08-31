@@ -111,4 +111,4 @@ cards:
 > [!TIP]
 > A szakasz színének feketére állításával lehet elérni a fenti kinézetet. Ezt utólag kell beállítani az adott szakaszra ahol a kártya van. Szakasz szerkesztése, háttér szín fekete, átlátszóság 100%.
 
-<small>Disclaimer: Természetesen AI-val készült, GLM 5.3 Flash volt az elkövető. Korábban összeraktam ezt sh scriptekkel és egyéb patkolásokkal, ez az átírat arra alapul, hogy könnyebben megosztható legyen.</small>
+<small>Disclaimer: Természetesen nagy nyelvi modellel (ami továbbra sem ai) készült, GLM 5.3 Flash volt az elkövető. Korábban összeraktam ezt sh scriptekkel és egyéb patkolásokkal, ez az átírat arra alapul, hogy könnyebben megosztható legyen.</small>
