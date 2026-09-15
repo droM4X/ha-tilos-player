@@ -6,6 +6,7 @@ A Tilos Rádió archívumából közvetlen lejátszás a Home Assistantban a meg
 - Műsor választás (zenei a lista elején, beszélgetősek a végén ABC sorrendben)
 - Epizód választás cím alapján az utolsó 4 hónapból
 - Lejátszás az archívum gombbal, az élő műsort is lehet hallgatni.
+- HACS-ból is telepíthető, egyedi integrációként, így később tud frissülni.
 
 ## Villantás
 ![well](imgs/preview.png)
@@ -14,8 +15,21 @@ A Tilos Rádió archívumából közvetlen lejátszás a Home Assistantban a meg
 Bubble Card-ot érdemes feltenni a HACS-ból, mert szép legörülőket tud prezentálni, a villantós képen is azzal látszik. Nélküle is megy, de úgy meh...
 
 ## Felpattintás
+### HACS-al
+- A HACS legyen feltelepítve
+- Oldalsó sávban: HACS, jobbra fent 3 pötty majd: Egyedi repók
+- A felbukkanó ablakban: 
+  - Repó megnyitása: `droM4X/ha-tilos-player`
+  - Típus: `Integráció`
+- Hozzáadás után HA újraindítása
+- Új integráció hozzáadása, Tilos Radio Player. A lejátszó entitást kell beállítani.
+- A kártya beállítása (kód alább)
+- Műsorlista frissítése (újraindításkor és 12 óránként lefut), műsor választás, lejátszás.
+- Örvendezés a remek muzsikáknak :)
+
+### Manuálisan
 - Repo klónozása/letöltése
-- A HA könyvtárába a custom_components és a www mappa bemásolása. Utóbbiban a logó van.
+- A HA könyvtárába a custom_components mappa bemásolása.
 - HA újraindítása
 - Új integráció hozzáadása, Tilos Radio Player. A lejátszó entitást kell beállítani.
 - A kártya beállítása (kód alább)
@@ -29,7 +43,7 @@ A kártya yaml fájlja alant, kézi hozzáadás.
 type: vertical-stack
 cards:
   - type: picture
-    image: /local/tilos_player/tilos_logo.jpg
+    image: /api/brands/integration/tilos_player/logo.png
     tap_action:
       action: none
     hold_action:
@@ -72,7 +86,7 @@ cards:
             }
       - type: custom:mushroom-template-card
         entity: button.tilos_radio_play
-        primary: Archívum
+        primary: Lejátszás
         icon: mdi:play
         tap_action:
           action: perform-action
@@ -86,8 +100,9 @@ cards:
           style: |
             ha-card {
               border-radius: 16px;
-              {% if is_state('button.tilos_radio_play', 'unavailable') %}
+              {% if states('select.tilos_radio_episode') in ['unavailable', 'unknown'] %}
               opacity: 0.4;
+              pointer-events: none;
               {% endif %}
             }
       - type: custom:mushroom-template-card
@@ -107,8 +122,9 @@ cards:
             ha-card {
               border-radius: 16px;
             }
+
 ```
 > [!TIP]
 > A szakasz színének feketére állításával lehet elérni a fenti kinézetet. Ezt utólag kell beállítani az adott szakaszra ahol a kártya van. Szakasz szerkesztése, háttér szín fekete, átlátszóság 100%.
 
-<small>Disclaimer: Természetesen nagy nyelvi modellel (ami továbbra sem ai) készült, GLM 5.3 Flash volt az elkövető. Korábban összeraktam ezt sh scriptekkel és egyéb patkolásokkal, ez az átírat arra alapul, hogy könnyebben megosztható legyen.</small>
+<small>Disclaimer: Csak egy lelkes hallgatói megoldás, semmilyen kapcsolatban nem voltam/vagyok a rádióval, nem volt semmi ráhatásuk erre a projectre. Természetesen nagy nyelvi modellel (ami továbbra sem ai) készült, GLM 5.3 Flash volt az elkövető. Korábban összeraktam ezt sh scriptekkel és egyéb patkolásokkal, ez az átírat arra alapul, hogy könnyebben megosztható legyen.</small>
