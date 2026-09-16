@@ -3,10 +3,11 @@
 A Tilos Rádió archívumából közvetlen lejátszás a Home Assistantban a megadott media player entitáson keresztül.
 
 ## Fícsörök
-- Műsor választás (zenei a lista elején, beszélgetősek a végén ABC sorrendben)
+- Műsor választás az összes archivált adásból (zenei a lista elején, beszélgetősek a végén ABC sorrendben)
 - Epizód választás cím alapján az utolsó 4 hónapból
-- Lejátszás az archívum gombbal, az élő műsort is lehet hallgatni.
+- Lejátszás közvetlenül az archívumból, az élő műsort is lehet hallgatni.
 - HACS-ból is telepíthető, egyedi integrációként, így később tud frissülni.
+- BETA: Műsor meta adatok megjelenítése (epizód cím, műsor név, és a műsor borítója)
 
 ## Villantás
 ![well](imgs/preview.png)

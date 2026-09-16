@@ -8,11 +8,18 @@ from typing import Any
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import TilosRuntimeData
-from .const import DOMAIN, LIVE_STREAM_URL
+from . import TilosRuntimeData, apply_media_metadata
+from .const import (
+    DOMAIN,
+    EPISODE_IMAGE_URL,
+    LIVE_STREAM_URL,
+    MEDIA_ARTIST_SUFFIX,
+    METADATA_PATCH_DELAY,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -121,6 +128,23 @@ class TilosPlayButton(TilosButtonBase):
             "Playing '%s' on %s: %s", episode.title, target, episode.url
         )
         await play_on_player(self.hass, target, episode.url)
+
+        show = self._runtime.selected_show
+        if show is None:
+            return
+        self.hass.async_create_task(
+            apply_media_metadata(
+                self.hass,
+                self._runtime,
+                async_get_clientsession(self.hass),
+                target,
+                episode.url,
+                episode.title,
+                f"{show.name}{MEDIA_ARTIST_SUFFIX}",
+                EPISODE_IMAGE_URL.format(alias=show.alias),
+                delay=METADATA_PATCH_DELAY,
+            )
+        )
 
 
 class TilosLiveButton(TilosButtonBase):
