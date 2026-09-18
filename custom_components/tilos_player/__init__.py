@@ -455,7 +455,7 @@ async def _register_frontend(hass: HomeAssistant) -> None:
     )
 
     # Keep this in sync with manifest.json.
-    version = "1.2.0"
+    version = "1.2.1"
     url = f"/api/tilos_player/tilos-player-card.js?v={version}"
 
     lovelace = hass.data["lovelace"]

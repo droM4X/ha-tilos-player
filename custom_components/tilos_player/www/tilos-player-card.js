@@ -8,10 +8,13 @@ class TilosPlayerCard extends HTMLElement {
     this._config = {};
 
     // A kártya saját UI-állapota.
-    // Az entity state-et nem használjuk automatikusan
-    // kiválasztott értékként.
     this._selectedShow = null;
     this._selectedEpisode = null;
+
+    // Az entity state-ekből csak egyszer,
+    // a kártya inicializálásakor állítjuk vissza
+    // a kiválasztást.
+    this._selectionInitialized = false;
 
     this._openDropdown = null;
     this._activeMenu = null;
@@ -89,12 +92,9 @@ class TilosPlayerCard extends HTMLElement {
 
           border-radius: var(--ha-card-border-radius, 12px);
 
-          /*
-           * Csak maga a kártya fekete.
-           */
+          /* Csak maga a kártya fekete. */
           background: #000;
           color: var(--primary-text-color, #212121);
-
           box-shadow: var(--ha-card-box-shadow, none);
         }
 
@@ -134,10 +134,8 @@ class TilosPlayerCard extends HTMLElement {
           border: 1px solid var(--divider-color, #ddd);
           border-radius: 8px;
 
-          /*
-           * A select marad világos.
-           */
-          background: var(--card-background-color, #d9d9d9);
+          /* A select világos. */
+          background: #d9d9d9;
           color: var(--primary-text-color, #212121);
 
           font: inherit;
@@ -151,7 +149,7 @@ class TilosPlayerCard extends HTMLElement {
         }
 
         .dropdown-button:hover {
-          background: var(--secondary-background-color, #f5f5f5);
+          background: #c9c9c9;
         }
 
         .dropdown-button:focus-visible {
@@ -176,7 +174,6 @@ class TilosPlayerCard extends HTMLElement {
 
         .dropdown-caption {
           display: block;
-
           margin-bottom: 1px;
 
           font-size: 12px;
@@ -189,7 +186,6 @@ class TilosPlayerCard extends HTMLElement {
         .dropdown-value {
           min-width: 0;
           width: 100%;
-
           overflow: hidden;
 
           font-size: 14px;
@@ -213,11 +209,6 @@ class TilosPlayerCard extends HTMLElement {
           color: var(--secondary-text-color, #757575);
         }
 
-        /*
-         * Marquee konténer.
-         * A szöveg két példánya egymás mögött halad,
-         * így a ciklus végén nincs látható ugrás.
-         */
         .dropdown-label.marquee {
           overflow: hidden;
         }
@@ -227,7 +218,6 @@ class TilosPlayerCard extends HTMLElement {
           width: max-content;
 
           white-space: nowrap;
-
           will-change: transform;
 
           animation:
@@ -245,12 +235,12 @@ class TilosPlayerCard extends HTMLElement {
         .marquee-gap {
           width: 10px;
           flex: 0 0 10px;
-	  text-align: center;
+          text-align: center;
         }
 
-	.marquee-gap::after {
-           content: "|";
-         }
+        .marquee-gap::after {
+          content: "|";
+        }
 
         @keyframes dropdown-marquee {
           from {
@@ -281,16 +271,11 @@ class TilosPlayerCard extends HTMLElement {
           transform: rotate(180deg);
         }
 
-        /*
-         * A dropdown fixed pozíciójú, ezért ki tud lógni
-         * a kártyából.
-         */
         .dropdown-menu {
           position: fixed;
           z-index: 999999;
 
           box-sizing: border-box;
-
           overflow-y: auto;
 
           padding: 4px;
@@ -358,7 +343,7 @@ class TilosPlayerCard extends HTMLElement {
           display: flex;
           align-items: center;
           justify-content: center;
-	  flex-direction: column;
+          flex-direction: column;
           gap: 6px;
 
           padding: 8px 10px;
@@ -366,9 +351,6 @@ class TilosPlayerCard extends HTMLElement {
           border: 1px solid var(--divider-color, #ddd);
           border-radius: 8px;
 
-          /*
-           * A gombok is világosak maradnak.
-           */
           background: var(--card-background-color, #fff);
           color: var(--primary-text-color, #212121);
 
@@ -414,6 +396,7 @@ class TilosPlayerCard extends HTMLElement {
           display: inline-flex;
           align-items: center;
           justify-content: center;
+
           border-radius: 50%;
 
           background: var(--secondary-background-color, #eeeeee);
@@ -423,6 +406,7 @@ class TilosPlayerCard extends HTMLElement {
         .icon svg {
           width: 24px;
           height: 24px;
+
           fill: currentColor;
         }
 
@@ -437,7 +421,6 @@ class TilosPlayerCard extends HTMLElement {
         <img class="logo" alt="Tilos Rádió">
 
         <div class="selectors">
-
           <div
             class="dropdown"
             data-entity="${this._config.show_entity}"
@@ -489,11 +472,9 @@ class TilosPlayerCard extends HTMLElement {
               <span class="dropdown-arrow"></span>
             </button>
           </div>
-
         </div>
 
         <div class="buttons">
-
           <button
             class="action-button"
             data-entity="${this._config.reload_entity}"
@@ -501,7 +482,7 @@ class TilosPlayerCard extends HTMLElement {
           >
             <span class="icon">
               <svg viewBox="0 0 24 24">
-                <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 7.99 7.99 7.99c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+                <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
               </svg>
             </span>
             <span>Frissítés</span>
@@ -532,7 +513,6 @@ class TilosPlayerCard extends HTMLElement {
             </span>
             <span>Élő adás</span>
           </button>
-
         </div>
       </ha-card>
     `;
@@ -607,6 +587,18 @@ class TilosPlayerCard extends HTMLElement {
         this._config.episode_entity
       ];
 
+    /*
+     * A kártya első inicializálásakor
+     * visszaolvassuk az entity-kből az aktuális
+     * kiválasztást.
+     */
+    if (!this._selectionInitialized) {
+      this._syncSelectionFromEntities(
+        showState,
+        episodeState
+      );
+    }
+
     this._updateShowDropdown(
       showState
     );
@@ -626,14 +618,113 @@ class TilosPlayerCard extends HTMLElement {
             ? this._hass.states[entityId]
             : null;
 
+        /*
+         * PLAY:
+         *
+         * A button entity állapota nem dönthet arról,
+         * hogy a gomb használható-e.
+         *
+         * A Tilos Play button "unknown" lehet,
+         * illetve a backend runtime állapotától függően
+         * unavailable is lehet, miközben a frontendben
+         * már megvan az epizód.
+         */
+        if (
+          entityId ===
+          this._config.play_entity
+        ) {
+          button.disabled =
+            this._selectedEpisode === null;
+
+          return;
+        }
+
+        /*
+         * Reload / Live:
+         * csak a ténylegesen unavailable entity
+         * legyen letiltva.
+         */
         button.disabled =
           !state ||
-          state.state === "unavailable" ||
-          state.state === "unknown";
+          state.state === "unavailable";
       });
 
     if (this._openDropdown) {
       this._repositionDropdown();
+    }
+  }
+
+  _syncSelectionFromEntities(
+    showState,
+    episodeState
+  ) {
+    let showInitialized = false;
+
+    /*
+     * MŰSOR visszaállítása.
+     */
+    if (
+      showState &&
+      showState.state !== "unknown" &&
+      showState.state !== "unavailable"
+    ) {
+      const showOptions =
+        showState.attributes?.options || [];
+
+      const currentShow =
+        showOptions.find(
+          (option) =>
+            String(option) ===
+            String(showState.state)
+        );
+
+      if (
+        currentShow !== undefined
+      ) {
+        this._selectedShow =
+          String(currentShow);
+
+        showInitialized = true;
+      }
+    }
+
+    /*
+     * EPIZÓD visszaállítása.
+     */
+    if (
+      this._selectedShow !== null &&
+      episodeState &&
+      episodeState.state !== "unknown" &&
+      episodeState.state !== "unavailable"
+    ) {
+      const episodeOptions =
+        episodeState.attributes?.options || [];
+
+      const currentEpisode =
+        episodeOptions.find(
+          (option) =>
+            String(option) ===
+            String(episodeState.state)
+        );
+
+      if (
+        currentEpisode !== undefined
+      ) {
+        this._selectedEpisode =
+          String(currentEpisode);
+      }
+    }
+
+    /*
+     * Csak akkor tekintjük inicializáltnak,
+     * ha legalább a műsor állapota már értelmezhető.
+     *
+     * Így ha induláskor még loading/unknown van,
+     * a későbbi HA state update után még
+     * vissza tudjuk állítani.
+     */
+    if (showInitialized) {
+      this._selectionInitialized = true;
     }
   }
 
@@ -654,7 +745,9 @@ class TilosPlayerCard extends HTMLElement {
 
     if (!stateObj) {
       button.disabled = true;
-      button.classList.add("disabled");
+      button.classList.add(
+        "disabled"
+      );
 
       this._setDropdownLabel(
         dropdown,
@@ -670,7 +763,9 @@ class TilosPlayerCard extends HTMLElement {
 
     if (!options.length) {
       button.disabled = true;
-      button.classList.add("disabled");
+      button.classList.add(
+        "disabled"
+      );
 
       this._setDropdownLabel(
         dropdown,
@@ -686,12 +781,9 @@ class TilosPlayerCard extends HTMLElement {
       "disabled"
     );
 
-    /*
-     * Nem az entity state-et mutatjuk,
-     * hanem kizárólag azt, amit ténylegesen
-     * kiválasztott a felhasználó.
-     */
-    if (this._selectedShow === null) {
+    if (
+      this._selectedShow === null
+    ) {
       this._setDropdownLabel(
         dropdown,
         "Válassz műsort...",
@@ -761,10 +853,6 @@ class TilosPlayerCard extends HTMLElement {
       "disabled"
     );
 
-    /*
-     * Az epizód entity state-ét sem vesszük
-     * automatikusan kiválasztottnak.
-     */
     if (
       this._selectedEpisode === null
     ) {
@@ -806,16 +894,16 @@ class TilosPlayerCard extends HTMLElement {
       return;
     }
 
-    const newText = String(text);
+    const newText =
+      String(text);
+
     const oldText =
       label.dataset.text;
 
     /*
      * Ha ugyanaz az érték van már kinn,
-     * és az animáció már fut, ne indítsuk újra.
-     *
-     * Ez fontos, mert a Home Assistant rendszeresen
-     * küld state update-eket.
+     * és az állapotnak megfelelő megjelenítés
+     * már létezik, ne indítsuk újra.
      */
     if (
       oldText === newText &&
@@ -864,8 +952,8 @@ class TilosPlayerCard extends HTMLElement {
     );
 
     /*
-     * Először normál szövegként rakjuk be,
-     * hogy meg tudjuk mérni a tényleges szélességét.
+     * Először normál szövegként jelenítjük meg,
+     * hogy meg lehessen mérni.
      */
     label.innerHTML = "";
     label.textContent =
@@ -907,7 +995,7 @@ class TilosPlayerCard extends HTMLElement {
         valueContainer.clientWidth;
 
       /*
-       * Nem lóg ki -> nincs marquee.
+       * Ha elfér, nincs marquee.
        */
       if (overflow <= 2) {
         label.classList.remove(
@@ -930,7 +1018,8 @@ class TilosPlayerCard extends HTMLElement {
         label.textContent;
 
       /*
-       * Két példány + köztes rés.
+       * Két példány egymás után,
+       * közöttük 10 px + |.
        */
       label.innerHTML = `
         <span class="marquee-track">
@@ -954,8 +1043,8 @@ class TilosPlayerCard extends HTMLElement {
         items[0];
 
       /*
-       * Az első szöveg + hézag a teljes
-       * periodikus egység szélessége.
+       * Az első szöveg + a 10 px-es rés
+       * a ciklus pontos távolsága.
        */
       const textWidth =
         firstItem.getBoundingClientRect()
@@ -967,9 +1056,8 @@ class TilosPlayerCard extends HTMLElement {
         textWidth + gap;
 
       /*
-       * Kb. 25 px/sec.
-       * A hosszabb címek természetesen lassabban
-       * mennek végig a teljes cikluson.
+       * Kb. 25 px/sec sebesség,
+       * minimum 10 sec, maximum 40 sec.
        */
       const duration =
         Math.max(
@@ -1007,6 +1095,7 @@ class TilosPlayerCard extends HTMLElement {
     }
 
     this._closeDropdown();
+
     this._openDropdownMenu(
       dropdown
     );
@@ -1026,8 +1115,8 @@ class TilosPlayerCard extends HTMLElement {
     }
 
     /*
-     * Az epizódlista csak kiválasztott
-     * műsor után nyitható meg.
+     * Az epizódlista csak kiválasztott műsor
+     * után nyitható meg.
      */
     if (
       entityId ===
@@ -1097,11 +1186,14 @@ class TilosPlayerCard extends HTMLElement {
             value;
 
           /*
-           * Új műsornál az előző epizód
-           * már nem tekinthető kiválasztottnak.
+           * Másik műsor választásakor
+           * az előző epizódot töröljük.
            */
           this._selectedEpisode =
             null;
+
+          this._selectionInitialized =
+            true;
 
           this._hass.callService(
             "select",
@@ -1129,6 +1221,9 @@ class TilosPlayerCard extends HTMLElement {
         ) {
           this._selectedEpisode =
             value;
+
+          this._selectionInitialized =
+            true;
 
           this._hass.callService(
             "select",
@@ -1322,7 +1417,7 @@ class TilosPlayerCard extends HTMLElement {
 
     /*
      * Ha lefelé nincs elég hely,
-     * de fent több van, akkor felfelé nyit.
+     * de fent több van, felfelé nyitunk.
      */
     const shouldOpenUp =
       spaceBelow <
@@ -1358,8 +1453,7 @@ class TilosPlayerCard extends HTMLElement {
     }
 
     /*
-     * Biztosítjuk, hogy ne lógjon ki
-     * a viewportból.
+     * Ne lógjon ki a viewportból.
      */
     top = Math.max(
       margin,
@@ -1493,7 +1587,7 @@ if (
     type: "tilos-player-card",
     name: "Tilos Player Card",
     description:
-      "Tilos Rádió archive player card",
+      "Tilos Rádió archivum lejátszó",
     preview: true,
   });
 }
