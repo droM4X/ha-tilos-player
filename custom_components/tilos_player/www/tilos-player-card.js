@@ -134,8 +134,7 @@ class TilosPlayerCard extends HTMLElement {
           border: 1px solid var(--divider-color, #ddd);
           border-radius: 8px;
 
-          /* A select világos. */
-          background: #d9d9d9;
+          background: var(--card-background-color, #d9d9d9);
           color: var(--primary-text-color, #212121);
 
           font: inherit;
@@ -149,7 +148,7 @@ class TilosPlayerCard extends HTMLElement {
         }
 
         .dropdown-button:hover {
-          background: #c9c9c9;
+          background: var(--secondary-background-color, #d9d9d9);
         }
 
         .dropdown-button:focus-visible {
@@ -408,12 +407,6 @@ class TilosPlayerCard extends HTMLElement {
           height: 24px;
 
           fill: currentColor;
-        }
-
-        @media (max-width: 500px) {
-          .buttons {
-            grid-template-columns: 1fr;
-          }
         }
       </style>
 

@@ -20,6 +20,7 @@ import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_STATE_CHANGED
 from homeassistant.core import Event, HomeAssistant
+from homeassistant.loader import async_get_integration
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.components.frontend import add_extra_js_url
@@ -454,9 +455,16 @@ async def _register_frontend(hass: HomeAssistant) -> None:
         ]
     )
 
-    # Keep this in sync with manifest.json.
-    version = "1.2.1"
-    url = f"/api/tilos_player/tilos-player-card.js?v={version}"
+    integration = await async_get_integration(
+        hass,
+        DOMAIN,
+    )
+
+    version = integration.version
+    url = (
+        f"/api/tilos_player/"
+        f"tilos-player-card.js?v={version}"
+    )
 
     lovelace = hass.data["lovelace"]
 
@@ -469,12 +477,38 @@ async def _register_frontend(hass: HomeAssistant) -> None:
     # Force loading of storage resources before inspecting them.
     await resources.async_get_info()
 
-    for item in resources.async_items():
-        if item.get("url", "").split("?")[0] == \
-                "/api/tilos_player/tilos-player-card.js":
-            return
+    resource_path = (
+        "/api/tilos_player/tilos-player-card.js"
+    )
 
-    if isinstance(resources, ResourceStorageCollection):
+    for item in resources.async_items():
+        current_url = item.get("url", "")
+
+        if current_url.split("?")[0] != resource_path:
+            continue
+
+        # Már regisztrálva van, de ellenőrizzük a verziót.
+        if current_url != url:
+            if isinstance(
+                resources,
+                ResourceStorageCollection,
+            ):
+                await resources.async_update_item(
+                    item["id"],
+                    {
+                        "url": url,
+                    },
+                )
+            else:
+                add_extra_js_url(hass, url)
+
+        return
+
+    # Még nincs regisztrálva.
+    if isinstance(
+        resources,
+        ResourceStorageCollection,
+    ):
         await resources.async_create_item(
             {
                 "res_type": "module",
