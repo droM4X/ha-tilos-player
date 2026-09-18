@@ -44,5 +44,5 @@ A Tilos Rádió archívumából közvetlen lejátszás a Home Assistantban a meg
 - A felületen kártya hozzáadása: Tilos Player Card.
 - Műsorlista frissítése (újraindításkor és 12 óránként lefut), műsor választás, lejátszás.
 - Örvendezés a remek muzsikáknak :)
-
+---
 <small>Disclaimer: Csak egy lelkes hallgatói megoldás, semmilyen kapcsolatban nem voltam/vagyok a rádióval, nem volt semmi ráhatásuk erre a projectre. Természetesen nagy nyelvi modellel (ami továbbra sem ai) készült, GLM 5.3 Flash és GPT 5.6 Luna volt az elkövető. Korábban összeraktam ezt sh scriptekkel és egyéb patkolásokkal, ez az átírat arra alapul, hogy könnyebben megosztható legyen.</small>
