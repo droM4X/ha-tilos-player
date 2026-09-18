@@ -14,6 +14,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
+from pathlib import Path
 
 import aiohttp
 from homeassistant.config_entries import ConfigEntry
@@ -21,6 +22,11 @@ from homeassistant.const import EVENT_STATE_CHANGED
 from homeassistant.core import Event, HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.components.frontend import add_extra_js_url
+from homeassistant.components.http import StaticPathConfig
+from homeassistant.components.lovelace.resources import (
+    ResourceStorageCollection,
+)
 
 from .const import (
     ARCHIVE_TITLE_PATTERN,
@@ -391,6 +397,7 @@ async def apply_media_metadata(
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Tilos Radio Player from a config entry."""
+    await _register_frontend(hass)
     session = async_get_clientsession(hass)
 
     async def async_update_shows() -> list[Show]:
@@ -431,3 +438,48 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 def get_runtime(hass: HomeAssistant, entry: ConfigEntry) -> TilosRuntimeData:
     """Return the runtime data for an entry."""
     return entry.runtime_data
+
+async def _register_frontend(hass: HomeAssistant) -> None:
+    """Register the Tilos Player Lovelace card."""
+
+    frontend_dir = Path(__file__).parent / "www"
+
+    await hass.http.async_register_static_paths(
+        [
+            StaticPathConfig(
+                "/api/tilos_player",
+                str(frontend_dir),
+                True,
+            )
+        ]
+    )
+
+    # Keep this in sync with manifest.json.
+    version = "1.2.0"
+    url = f"/api/tilos_player/tilos-player-card.js?v={version}"
+
+    lovelace = hass.data["lovelace"]
+
+    resources = (
+        lovelace.resources
+        if hasattr(lovelace, "resources")
+        else lovelace["resources"]
+    )
+
+    # Force loading of storage resources before inspecting them.
+    await resources.async_get_info()
+
+    for item in resources.async_items():
+        if item.get("url", "").split("?")[0] == \
+                "/api/tilos_player/tilos-player-card.js":
+            return
+
+    if isinstance(resources, ResourceStorageCollection):
+        await resources.async_create_item(
+            {
+                "res_type": "module",
+                "url": url,
+            }
+        )
+    else:
+        add_extra_js_url(hass, url)
