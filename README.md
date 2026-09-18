@@ -1,4 +1,9 @@
 # Tilos Radio Player (Home Assistant custom component)
+![GitHub releases](https://img.shields.io/github/v/release/droM4X/ha-tilos-player?style=for-the-badge)
+![GitHub last release](https://img.shields.io/github/release-date/droM4X/ha-tilos-player?style=for-the-badge)
+![GitHub commit activity](https://img.shields.io/github/commit-activity/y/droM4X/ha-tilos-player?style=for-the-badge)
+![GitHub License](https://img.shields.io/github/license/droM4X/ha-tilos-player?style=for-the-badge)
+
 
 A Tilos Rádió archívumából közvetlen lejátszás a Home Assistantban a megadott media player entitáson keresztül, saját kártyával.
 
