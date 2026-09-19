@@ -61,3 +61,9 @@ METADATA_EVENT = "tilos_player_media_metadata"
 
 # Shows list refresh interval
 SHOWS_UPDATE_INTERVAL = 12  # hours
+
+# Favorites — the show IDs are stored by the favorites sensor (which
+# persists them via RestoreEntity) and toggled through these services.
+SERVICE_ADD_FAVORITE = "add_favorite"
+SERVICE_REMOVE_FAVORITE = "remove_favorite"
+ATTR_SHOW_ID = "show_id"

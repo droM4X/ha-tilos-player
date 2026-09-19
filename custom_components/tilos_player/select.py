@@ -43,6 +43,11 @@ class TilosShowSelect(CoordinatorEntity, SelectEntity):
     _attr_name = "Show"
     _attr_icon = "mdi:radio"
 
+    # The 200+ entry show list is ~17 kB, past the recorder's attribute
+    # limit. The card reads it from the live state, so keep it out of the
+    # database.
+    _unrecorded_attributes = frozenset({"shows"})
+
     def __init__(
         self,
         hass: HomeAssistant,
@@ -74,11 +79,27 @@ class TilosShowSelect(CoordinatorEntity, SelectEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Expose details of the selected show."""
+        """Expose the whole show list plus details of the selected show.
+
+        The card needs the per-show type (to group the dropdown) and the
+        per-show ID (to match favorites) — neither fits into the flat
+        `options` list.
+        """
+        shows = self._runtime.coordinator.data or []
+        attrs: dict[str, Any] = {
+            "shows": [
+                {"id": str(show.id), "name": show.name, "type": show.type}
+                for show in shows
+            ]
+        }
+
         show = self._runtime.selected_show
-        if not show:
-            return {}
-        return {"alias": show.alias, "type": show.type, "id": show.id}
+        if show:
+            attrs["alias"] = show.alias
+            attrs["type"] = show.type
+            attrs["id"] = str(show.id)
+
+        return attrs
 
     @property
     def available(self) -> bool:

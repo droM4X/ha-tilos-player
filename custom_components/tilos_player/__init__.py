@@ -13,13 +13,15 @@ import re
 import time
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import Any
+from typing import Any, Callable
 from pathlib import Path
 
 import aiohttp
+import homeassistant.helpers.config_validation as cv
+import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_STATE_CHANGED
-from homeassistant.core import Event, HomeAssistant
+from homeassistant.core import Event, HomeAssistant, ServiceCall, callback
 from homeassistant.loader import async_get_integration
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -31,6 +33,7 @@ from homeassistant.components.lovelace.resources import (
 
 from .const import (
     ARCHIVE_TITLE_PATTERN,
+    ATTR_SHOW_ID,
     CONF_LOOKBACK_DAYS,
     CONF_MEDIA_PLAYER,
     DEFAULT_EPISODE_IMAGE,
@@ -40,6 +43,8 @@ from .const import (
     IMAGE_CHECK_TIMEOUT,
     METADATA_EVENT,
     METADATA_REWRITE_INTERVAL,
+    SERVICE_ADD_FAVORITE,
+    SERVICE_REMOVE_FAVORITE,
     SHOW_TYPE_MUSIC,
     SHOWS_UPDATE_INTERVAL,
     SHOWS_URL,
@@ -47,7 +52,7 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["select", "button"]
+PLATFORMS = ["select", "button", "sensor"]
 
 
 @dataclass
@@ -93,6 +98,10 @@ class TilosRuntimeData:
     selected_show: Show | None = None
     episodes: list[Episode] = field(default_factory=list)
     selected_episode: Episode | None = None
+    # Favorite show IDs — owned by the favorites sensor (which persists them
+    # via RestoreEntity) and mutated by the favorite services.
+    favorites: set[str] = field(default_factory=set)
+    favorites_listeners: set[Callable[[], None]] = field(default_factory=set)
     # Media metadata guard state
     active_media: ActiveMedia | None = None
     metadata_unsub: Any = None
@@ -396,6 +405,80 @@ async def apply_media_metadata(
     )
 
 
+# Service schema shared by add_favorite / remove_favorite
+FAVORITE_SERVICE_SCHEMA = vol.Schema({vol.Required(ATTR_SHOW_ID): cv.string})
+
+
+def _apply_favorite(
+    runtime: TilosRuntimeData, show_id: str, favorite: bool
+) -> bool:
+    """Add or remove a favorite show ID; True when the set changed."""
+    if favorite:
+        if show_id in runtime.favorites:
+            return False
+        runtime.favorites.add(show_id)
+    else:
+        if show_id not in runtime.favorites:
+            return False
+        runtime.favorites.discard(show_id)
+    return True
+
+
+def _notify_favorites_changed(runtime: TilosRuntimeData) -> None:
+    """Ask the favorites sensor to re-publish its state.
+
+    The sensor owns the entity state, so the service handlers (which only
+    mutate the shared set) go through it instead of writing HA state
+    themselves.
+    """
+    for listener in list(runtime.favorites_listeners):
+        listener()
+
+
+@callback
+def _async_register_favorite_services(
+    hass: HomeAssistant, runtime: TilosRuntimeData
+) -> None:
+    """Register the favorite services for the loaded entry."""
+
+    async def async_add_favorite(call: ServiceCall) -> None:
+        """Add a show to the favorites."""
+        show_id = str(call.data[ATTR_SHOW_ID])
+        if not _apply_favorite(runtime, show_id, True):
+            return
+        _LOGGER.info("Favorite show added: %s", show_id)
+        _notify_favorites_changed(runtime)
+
+    async def async_remove_favorite(call: ServiceCall) -> None:
+        """Remove a show from the favorites."""
+        show_id = str(call.data[ATTR_SHOW_ID])
+        if not _apply_favorite(runtime, show_id, False):
+            return
+        _LOGGER.info("Favorite show removed: %s", show_id)
+        _notify_favorites_changed(runtime)
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_ADD_FAVORITE,
+        async_add_favorite,
+        schema=FAVORITE_SERVICE_SCHEMA,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_REMOVE_FAVORITE,
+        async_remove_favorite,
+        schema=FAVORITE_SERVICE_SCHEMA,
+    )
+
+
+@callback
+def _async_unregister_favorite_services(hass: HomeAssistant) -> None:
+    """Drop the favorite services when the entry is unloaded."""
+    for service in (SERVICE_ADD_FAVORITE, SERVICE_REMOVE_FAVORITE):
+        if hass.services.has_service(DOMAIN, service):
+            hass.services.async_remove(DOMAIN, service)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Tilos Radio Player from a config entry."""
     await _register_frontend(hass)
@@ -421,6 +504,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.runtime_data = runtime
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    _async_register_favorite_services(hass, runtime)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
 
@@ -428,7 +512,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     stop_metadata_guard(entry.runtime_data)
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unloaded:
+        _async_unregister_favorite_services(hass)
+    return unloaded
 
 
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:

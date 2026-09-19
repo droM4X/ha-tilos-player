@@ -1,0 +1,23 @@
+add_favorite:
+  name: Add favorite show
+  description: Add a Tilos archive show to the favorites list.
+  fields:
+    show_id:
+      name: Show ID
+      description: ID of the show, as listed in the show select's "shows" attribute.
+      required: true
+      example: "5480cee86dab254449a7cc36"
+      selector:
+        text:
+
+remove_favorite:
+  name: Remove favorite show
+  description: Remove a Tilos archive show from the favorites list.
+  fields:
+    show_id:
+      name: Show ID
+      description: ID of the show, as listed in the show select's "shows" attribute.
+      required: true
+      example: "5480cee86dab254449a7cc36"
+      selector:
+        text:

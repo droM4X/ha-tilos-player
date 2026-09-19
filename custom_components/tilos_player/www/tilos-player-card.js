@@ -1,3 +1,32 @@
+/*
+ * Kedvencek és a műsorlista csoportosítása.
+ *
+ * A kedvenc műsorok ID-ját a backend sensor
+ * entitása tárolja, a név -> típus -> id
+ * leképezést pedig a show select "shows"
+ * attribútuma adja.
+ */
+const STAR_FILLED_PATH =
+  "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z";
+
+const STAR_OUTLINE_PATH =
+  "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z";
+
+const FAVORITES_GROUP_LABEL =
+  "Kedvencek";
+
+/* A típuscsoportok sorrendje a listában. */
+const SHOW_TYPE_GROUPS = [
+  {
+    type: "MUSIC",
+    label: "Zenei műsorok",
+  },
+  {
+    type: "SPEECH",
+    label: "Beszélgetős műsorok",
+  },
+];
+
 class TilosPlayerCard extends HTMLElement {
   constructor() {
     super();
@@ -28,6 +57,7 @@ class TilosPlayerCard extends HTMLElement {
     this._config = {
       show_entity: "select.tilos_radio_show",
       episode_entity: "select.tilos_radio_episode",
+      favorites_entity: "sensor.tilos_radio_favorites",
       reload_entity: "button.tilos_radio_reload_shows",
       play_entity: "button.tilos_radio_play",
       live_entity: "button.tilos_radio_live",
@@ -116,6 +146,72 @@ class TilosPlayerCard extends HTMLElement {
         .dropdown {
           position: relative;
           width: 100%;
+        }
+
+        /* Csillag + műsor választó egy sorban. */
+        .show-row {
+          display: flex;
+          align-items: stretch;
+          gap: 10px;
+        }
+
+        .show-row .dropdown {
+          flex: 1;
+          min-width: 0;
+        }
+
+        .favorite-button {
+          flex: 0 0 auto;
+
+          width: 52px;
+          min-height: 52px;
+
+          box-sizing: border-box;
+
+          display: flex;
+          align-items: center;
+          justify-content: center;
+
+          padding: 0;
+
+          border: 1px solid var(--divider-color, #ddd);
+          border-radius: 8px;
+
+          background: var(--card-background-color, #d9d9d9);
+          color: var(--secondary-text-color, #757575);
+
+          cursor: pointer;
+
+          transition:
+            background-color 0.15s ease,
+            color 0.15s ease,
+            border-color 0.15s ease;
+        }
+
+        .favorite-button:hover:not(:disabled) {
+          background: var(--secondary-background-color, #d9d9d9);
+        }
+
+        .favorite-button:focus-visible {
+          outline: 2px solid var(--primary-color);
+          outline-offset: 1px;
+        }
+
+        .favorite-button:disabled {
+          opacity: 0.5;
+          cursor: default;
+        }
+
+        .favorite-button.active {
+          color: var(--warning-color, #ffa726);
+          border-color: var(--warning-color, #ffa726);
+        }
+
+        .favorite-button svg {
+          width: 26px;
+          height: 26px;
+
+          fill: currentColor;
         }
 
         .dropdown-button {
@@ -330,6 +426,53 @@ class TilosPlayerCard extends HTMLElement {
           background: var(--primary-color);
         }
 
+        /* optgroup-szerű csoportcím a listában. */
+        .dropdown-group-label {
+          position: sticky;
+          top: 0;
+          z-index: 1;
+
+          padding: 8px 12px 4px;
+
+          background: var(--card-background-color, #fff);
+          color: var(--secondary-text-color, #757575);
+
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+        }
+
+        .dropdown-group-label:first-child {
+          padding-top: 4px;
+        }
+
+        /* A csillag helye minden műsor sorban foglalt. */
+        .dropdown-option-star {
+          flex: 0 0 auto;
+
+          width: 18px;
+          height: 18px;
+
+          margin-right: 8px;
+
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .dropdown-option-star svg {
+          width: 16px;
+          height: 16px;
+
+          fill: currentColor;
+        }
+
+        .dropdown-option-label {
+          flex: 1;
+          min-width: 0;
+        }
+
         .buttons {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
@@ -414,28 +557,42 @@ class TilosPlayerCard extends HTMLElement {
         <img class="logo" alt="Tilos Rádió">
 
         <div class="selectors">
-          <div
-            class="dropdown"
-            data-entity="${this._config.show_entity}"
-          >
-            <button class="dropdown-button" type="button">
-              <span class="dropdown-content">
-                <span class="dropdown-caption">
-                  Műsor
-                </span>
+          <div class="show-row">
+            <button
+              class="favorite-button"
+              type="button"
+              disabled
+              aria-pressed="false"
+              title="Hozzáadás a kedvencekhez"
+            >
+              <svg viewBox="0 0 24 24">
+                <path d="${STAR_OUTLINE_PATH}"/>
+              </svg>
+            </button>
 
-                <span class="dropdown-value">
-                  <span
-                    class="dropdown-label placeholder"
-                    data-text="Válassz műsort..."
-                  >
-                    Válassz műsort...
+            <div
+              class="dropdown"
+              data-entity="${this._config.show_entity}"
+            >
+              <button class="dropdown-button" type="button">
+                <span class="dropdown-content">
+                  <span class="dropdown-caption">
+                    Műsor
+                  </span>
+
+                  <span class="dropdown-value">
+                    <span
+                      class="dropdown-label placeholder"
+                      data-text="Válassz műsort..."
+                    >
+                      Válassz műsort...
+                    </span>
                   </span>
                 </span>
-              </span>
 
-              <span class="dropdown-arrow"></span>
-            </button>
+                <span class="dropdown-arrow"></span>
+              </button>
+            </div>
           </div>
 
           <div
@@ -535,6 +692,21 @@ class TilosPlayerCard extends HTMLElement {
         );
       });
 
+    const favoriteButton =
+      this.shadowRoot.querySelector(
+        ".favorite-button"
+      );
+
+    if (favoriteButton) {
+      favoriteButton.addEventListener(
+        "click",
+        (event) => {
+          event.stopPropagation();
+          this._toggleFavorite();
+        }
+      );
+    }
+
     this.shadowRoot
       .querySelectorAll(".action-button")
       .forEach((button) => {
@@ -593,6 +765,10 @@ class TilosPlayerCard extends HTMLElement {
     }
 
     this._updateShowDropdown(
+      showState
+    );
+
+    this._updateFavoriteButton(
       showState
     );
 
@@ -799,6 +975,150 @@ class TilosPlayerCard extends HTMLElement {
         this._selectedShow
       );
     }
+  }
+
+  /*
+   * A kedvenc ID-k a sensor entitás
+   * "favorites" attribútumából jönnek.
+   */
+  _favoriteIds() {
+    const stateObj =
+      this._hass.states[
+        this._config.favorites_entity
+      ];
+
+    const ids =
+      stateObj?.attributes?.favorites;
+
+    if (!Array.isArray(ids)) {
+      return new Set();
+    }
+
+    return new Set(
+      ids.map((id) => String(id))
+    );
+  }
+
+  /*
+   * A kiválasztott műsor ID-ja.
+   *
+   * Elsődlegesen a shows attribútumból
+   * oldjuk fel név alapján, így akkor is
+   * helyes, ha a select entity state-je
+   * még nem frissült a kattintás után.
+   */
+  _selectedShowId(showState) {
+    if (this._selectedShow === null) {
+      return null;
+    }
+
+    const shows =
+      showState?.attributes?.shows;
+
+    if (Array.isArray(shows)) {
+      const match = shows.find(
+        (show) =>
+          String(show.name) ===
+          this._selectedShow
+      );
+
+      if (match && match.id != null) {
+        return String(match.id);
+      }
+    }
+
+    /*
+     * Tartalék: az entity saját id
+     * attribútuma, de csak ha a state
+     * tényleg az általunk kiválasztott
+     * műsor.
+     */
+    if (
+      showState &&
+      String(showState.state) ===
+        this._selectedShow &&
+      showState.attributes?.id != null
+    ) {
+      return String(
+        showState.attributes.id
+      );
+    }
+
+    return null;
+  }
+
+  _updateFavoriteButton(showState) {
+    const button =
+      this.shadowRoot.querySelector(
+        ".favorite-button"
+      );
+
+    if (!button) {
+      return;
+    }
+
+    const showId =
+      this._selectedShowId(showState);
+
+    const favorite =
+      showId !== null &&
+      this._favoriteIds().has(showId);
+
+    button.disabled =
+      showId === null;
+
+    button.classList.toggle(
+      "active",
+      favorite
+    );
+
+    button.setAttribute(
+      "aria-pressed",
+      favorite ? "true" : "false"
+    );
+
+    button.title = favorite
+      ? "Eltávolítás a kedvencek közül"
+      : "Hozzáadás a kedvencekhez";
+
+    const path =
+      button.querySelector("path");
+
+    if (path) {
+      path.setAttribute(
+        "d",
+        favorite
+          ? STAR_FILLED_PATH
+          : STAR_OUTLINE_PATH
+      );
+    }
+  }
+
+  _toggleFavorite() {
+    const showState =
+      this._hass.states[
+        this._config.show_entity
+      ];
+
+    const showId =
+      this._selectedShowId(showState);
+
+    if (showId === null) {
+      return;
+    }
+
+    const favorite =
+      this._favoriteIds().has(showId);
+
+    this._hass.callService(
+      "tilos_player",
+      favorite
+        ? "remove_favorite"
+        : "add_favorite",
+      {
+        show_id: showId,
+      }
+    );
   }
 
   _updateEpisodeDropdown(stateObj) {
@@ -1313,40 +1633,221 @@ class TilosPlayerCard extends HTMLElement {
 
     menu.innerHTML = "";
 
-    options.forEach(
-      (option) => {
-        const optionButton =
-          document.createElement(
-            "button"
-          );
+    /*
+     * A műsorlista csoportosítva jelenik meg
+     * (kedvencek, majd típus szerint),
+     * az epizódlista marad lapos.
+     */
+    if (
+      dropdown.dataset.entity ===
+      this._config.show_entity
+    ) {
+      this._renderShowOptions(
+        menu,
+        options,
+        currentValue
+      );
 
-        optionButton.type =
-          "button";
+      return;
+    }
 
-        optionButton.className =
-          "dropdown-option";
+    this._renderFlatOptions(
+      menu,
+      options,
+      currentValue
+    );
+  }
 
-        optionButton.dataset.value =
-          String(option);
+  _renderFlatOptions(
+    menu,
+    options,
+    currentValue
+  ) {
+    options.forEach((option) => {
+      menu.appendChild(
+        this._createOption(
+          option,
+          option,
+          {
+            selected:
+              currentValue !== null &&
+              String(option) ===
+                String(currentValue),
+            favorite: null,
+          }
+        )
+      );
+    });
+  }
 
-        optionButton.textContent =
-          option;
+  _renderShowOptions(
+    menu,
+    options,
+    currentValue
+  ) {
+    const showState =
+      this._hass.states[
+        this._config.show_entity
+      ];
 
-        if (
-          currentValue !== null &&
-          String(option) ===
-            String(currentValue)
-        ) {
-          optionButton.classList.add(
-            "selected"
-          );
-        }
+    const shows =
+      showState?.attributes?.shows;
+
+    /*
+     * Ha a backend még nem adja a shows
+     * attribútumot, marad a lapos lista.
+     */
+    if (
+      !Array.isArray(shows) ||
+      !shows.length
+    ) {
+      this._renderFlatOptions(
+        menu,
+        options,
+        currentValue
+      );
+
+      return;
+    }
+
+    const favorites =
+      this._favoriteIds();
+
+    const current =
+      currentValue === null
+        ? null
+        : String(currentValue);
+
+    const byName = (items) =>
+      [...items].sort((a, b) =>
+        String(a.name).localeCompare(
+          String(b.name),
+          "hu",
+          { sensitivity: "base" }
+        )
+      );
+
+    const groups = [
+      {
+        label: FAVORITES_GROUP_LABEL,
+        items: byName(
+          shows.filter((show) =>
+            favorites.has(
+              String(show.id)
+            )
+          )
+        ),
+      },
+      ...SHOW_TYPE_GROUPS.map((group) => ({
+        label: group.label,
+        items: byName(
+          shows.filter(
+            (show) =>
+              String(show.type) ===
+              group.type
+          )
+        ),
+      })),
+    ];
+
+    groups.forEach((group) => {
+      if (!group.items.length) {
+        return;
+      }
+
+      const label =
+        document.createElement("div");
+
+      label.className =
+        "dropdown-group-label";
+
+      label.textContent = group.label;
+
+      menu.appendChild(label);
+
+      group.items.forEach((show) => {
+        const name =
+          String(show.name);
 
         menu.appendChild(
-          optionButton
+          this._createOption(
+            name,
+            name,
+            {
+              selected:
+                current !== null &&
+                name === current,
+              favorite:
+                favorites.has(
+                  String(show.id)
+                ),
+            }
+          )
         );
+      });
+    });
+  }
+
+  /*
+   * Egy legördülő opció.
+   *
+   * A `favorite` értéke:
+   *   null  -> nincs csillag oszlop (epizód)
+   *   false -> üres csillag hely, hogy a nevek
+   *            egy vonalban maradjanak
+   *   true  -> kitöltött csillag
+   */
+  _createOption(
+    value,
+    label,
+    { selected, favorite }
+  ) {
+    const optionButton =
+      document.createElement("button");
+
+    optionButton.type = "button";
+
+    optionButton.className =
+      "dropdown-option";
+
+    optionButton.dataset.value =
+      String(value);
+
+    if (favorite !== null) {
+      const star =
+        document.createElement("span");
+
+      star.className =
+        "dropdown-option-star";
+
+      if (favorite) {
+        star.innerHTML = `
+          <svg viewBox="0 0 24 24">
+            <path d="${STAR_FILLED_PATH}"/>
+          </svg>
+        `;
       }
-    );
+
+      optionButton.appendChild(star);
+    }
+
+    const text =
+      document.createElement("span");
+
+    text.className =
+      "dropdown-option-label";
+
+    text.textContent = label;
+
+    optionButton.appendChild(text);
+
+    if (selected) {
+      optionButton.classList.add(
+        "selected"
+      );
+    }
+
+    return optionButton;
   }
 
   _repositionDropdown() {
