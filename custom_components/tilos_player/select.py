@@ -16,7 +16,14 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from . import Episode, Show, TilosRuntimeData, fetch_episodes
+from . import (
+    Episode,
+    Show,
+    TilosRuntimeData,
+    fetch_episodes,
+    register_episodes,
+    resolve_show_image,
+)
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -130,6 +137,10 @@ class TilosEpisodeSelect(SelectEntity):
     _attr_name = "Episode"
     _attr_icon = "mdi:playlist-music"
 
+    # The HTML description can be several kB and is only needed by the
+    # card in the live state — keep it out of the recorder database.
+    _unrecorded_attributes = frozenset({"description"})
+
     def __init__(
         self,
         hass: HomeAssistant,
@@ -176,6 +187,8 @@ class TilosEpisodeSelect(SelectEntity):
             attrs["mp3_url"] = episode.url
             attrs["title"] = episode.title
             attrs["broadcast"] = self._format_ts(episode.timestamp)
+            if episode.description:
+                attrs["description"] = episode.description
         return attrs
 
     async def async_select_option(self, option: str) -> None:
@@ -210,6 +223,18 @@ class TilosEpisodeSelect(SelectEntity):
 
         self._runtime.episodes = episodes
         self._runtime.selected_episode = None
+
+        # Remember the metadata of the fetched episodes under their mp3
+        # file name, so the player metadata can be resolved later — even
+        # for Music Assistant queue playback the card never sees start.
+        if episodes:
+            image_url = await resolve_show_image(
+                session, self._runtime, show.alias
+            )
+            register_episodes(
+                self._runtime, episodes, show.name, image_url
+            )
+
         self.async_write_ha_state()
 
     @staticmethod

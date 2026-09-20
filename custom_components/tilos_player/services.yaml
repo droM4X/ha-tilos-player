@@ -1,3 +1,49 @@
+play:
+  name: Play
+  description: >-
+    Play the selected archive episode or the live stream on the given media
+    player, and apply the Tilos metadata (title, show name, cover) to it.
+  fields:
+    entity_id:
+      name: Media player
+      description: The media player to play on.
+      required: true
+      selector:
+        entity:
+          domain: media_player
+    media:
+      name: Media
+      description: Play the selected archive episode, or the live stream.
+      required: false
+      default: episode
+      selector:
+        select:
+          options:
+            - value: episode
+              label: Selected episode
+            - value: live
+              label: Live stream
+    enqueue:
+      name: Enqueue
+      description: >-
+        Only for Music Assistant players. When set, the episode is queued
+        instead of played directly. Leave empty for a plain Home Assistant
+        media player.
+      required: false
+      selector:
+        select:
+          options:
+            - value: play
+              label: Play now (keep queue)
+            - value: add
+              label: Add to queue
+            - value: next
+              label: Play next
+            - value: replace
+              label: Replace queue and play
+            - value: replace_next
+              label: Replace queue and play next
+
 add_favorite:
   name: Add favorite show
   description: Add a Tilos archive show to the favorites list.

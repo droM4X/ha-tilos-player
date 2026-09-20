@@ -1,27 +1,17 @@
-"""Buttons for Tilos Radio Player: play archive, play live, reload shows."""
+"""Buttons for Tilos Radio Player: play archive, play live."""
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import TilosRuntimeData, apply_media_metadata
-from .const import (
-    DOMAIN,
-    EPISODE_IMAGE_URL,
-    LIVE_STREAM_URL,
-    MEDIA_ARTIST_SUFFIX,
-    METADATA_PATCH_DELAY,
-)
-
-_LOGGER = logging.getLogger(__name__)
+from . import TilosRuntimeData, play_live_stream, play_selected_episode
+from .const import DOMAIN, LIVE_STREAM_URL
 
 
 async def async_setup_entry(
@@ -33,24 +23,9 @@ async def async_setup_entry(
     runtime: TilosRuntimeData = entry.runtime_data
     async_add_entities(
         [
-            TilosReloadShowsButton(hass, entry, runtime),
             TilosPlayButton(hass, entry, runtime),
             TilosLiveButton(hass, entry, runtime),
         ]
-    )
-
-
-async def play_on_player(hass: HomeAssistant, entity_id: str, url: str) -> None:
-    """Call media_player.play_media with the given URL."""
-    await hass.services.async_call(
-        "media_player",
-        "play_media",
-        {
-            "entity_id": entity_id,
-            "media_content_type": "music",
-            "media_content_id": url,
-        },
-        blocking=False,
     )
 
 
@@ -77,24 +52,6 @@ class TilosButtonBase(ButtonEntity):
         )
 
 
-class TilosReloadShowsButton(TilosButtonBase):
-    """Button that re-fetches the show list from the API."""
-
-    _attr_name = "Reload shows"
-    _attr_icon = "mdi:refresh"
-    _suffix = "reload_shows_button"
-
-    @property
-    def available(self) -> bool:
-        """Available when the last show-list update succeeded."""
-        return self._runtime.coordinator.last_update_success
-
-    async def async_press(self) -> None:
-        """Request an immediate refresh of the show list."""
-        _LOGGER.info("Manual show list refresh requested")
-        await self._runtime.coordinator.async_request_refresh()
-
-
 class TilosPlayButton(TilosButtonBase):
     """Button that plays the selected episode on the configured media player."""
 
@@ -117,33 +74,9 @@ class TilosPlayButton(TilosButtonBase):
         }
 
     async def async_press(self) -> None:
-        """Play the selected episode's mp3 on the configured media player."""
-        episode = self._runtime.selected_episode
-        if episode is None:
-            _LOGGER.warning("Play pressed but no episode is selected")
-            return
-
-        target = self._runtime.media_player_entity
-        _LOGGER.info(
-            "Playing '%s' on %s: %s", episode.title, target, episode.url
-        )
-        await play_on_player(self.hass, target, episode.url)
-
-        show = self._runtime.selected_show
-        if show is None:
-            return
-        self.hass.async_create_task(
-            apply_media_metadata(
-                self.hass,
-                self._runtime,
-                async_get_clientsession(self.hass),
-                target,
-                episode.url,
-                episode.title,
-                f"{show.name}{MEDIA_ARTIST_SUFFIX}",
-                EPISODE_IMAGE_URL.format(alias=show.alias),
-                delay=METADATA_PATCH_DELAY,
-            )
+        """Play the selected episode on the configured media player."""
+        await play_selected_episode(
+            self.hass, self._runtime, self._runtime.media_player_entity
         )
 
 
@@ -164,6 +97,6 @@ class TilosLiveButton(TilosButtonBase):
 
     async def async_press(self) -> None:
         """Play the live stream on the configured media player."""
-        target = self._runtime.media_player_entity
-        _LOGGER.info("Playing live stream on %s: %s", target, LIVE_STREAM_URL)
-        await play_on_player(self.hass, target, LIVE_STREAM_URL)
+        await play_live_stream(
+            self.hass, self._runtime.media_player_entity
+        )

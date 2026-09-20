@@ -11,6 +11,7 @@ import asyncio
 import logging
 import re
 import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any, Callable
@@ -20,10 +21,11 @@ import aiohttp
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EVENT_STATE_CHANGED
+from homeassistant.const import ATTR_ENTITY_ID, EVENT_STATE_CHANGED
 from homeassistant.core import Event, HomeAssistant, ServiceCall, callback
 from homeassistant.loader import async_get_integration
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
@@ -32,18 +34,30 @@ from homeassistant.components.lovelace.resources import (
 )
 
 from .const import (
-    ARCHIVE_TITLE_PATTERN,
+    ARCHIVE_KEY_PATTERN,
+    ATTR_ENQUEUE,
+    ATTR_MEDIA,
     ATTR_SHOW_ID,
     CONF_LOOKBACK_DAYS,
     CONF_MEDIA_PLAYER,
     DEFAULT_EPISODE_IMAGE,
     DEFAULT_LOOKBACK_DAYS,
     DOMAIN,
+    ENQUEUE_OPTIONS,
+    EPISODE_IMAGE_URL,
     HTTP_HEADERS,
     IMAGE_CHECK_TIMEOUT,
+    LIVE_STREAM_URL,
+    MEDIA_ARTIST_SUFFIX,
+    MEDIA_EPISODE,
+    MEDIA_INDEX_MAX_ENTRIES,
+    MEDIA_LIVE,
     METADATA_EVENT,
+    METADATA_PATCH_DELAY,
+    METADATA_POLL_INTERVAL,
     METADATA_REWRITE_INTERVAL,
     SERVICE_ADD_FAVORITE,
+    SERVICE_PLAY,
     SERVICE_REMOVE_FAVORITE,
     SHOW_TYPE_MUSIC,
     SHOWS_UPDATE_INTERVAL,
@@ -63,6 +77,10 @@ class Episode:
     url: str
     timestamp: int  # ms epoch of realFrom (fallback plannedFrom)
     m3u_url: str
+    # Show description / tracklist as HTML, straight from the API's
+    # text.formatted field (falls back to text.content). Every episode
+    # has its own, and it may be empty.
+    description: str = ""
 
 
 @dataclass
@@ -77,14 +95,21 @@ class Show:
 
 
 @dataclass
-class ActiveMedia:
-    """Metadata of the episode currently patched onto the media player."""
+class EpisodeInfo:
+    """Metadata of one archive episode, keyed by its mp3 file name.
 
-    entity_id: str
-    url: str  # the mp3 URL we started — used as the "is it still us" key
+    The archive mp3s carry no ID3 tags, so when one is playing we can only
+    recognise it by the 'tilos-YYYYMMDD-HHMMSS-HHMMSS' file name the player
+    reports. This record is what we look up (and write onto the player) when
+    that happens — for direct playback and for Music Assistant queue items
+    alike, because we remembered what was browsed/enqueued.
+    """
+
+    key: str  # 'tilos-YYYYMMDD-HHMMSS-HHMMSS'
     title: str
     artist: str
-    image_url: str | None
+    image_url: str
+    url: str
 
 
 @dataclass
@@ -102,10 +127,17 @@ class TilosRuntimeData:
     # via RestoreEntity) and mutated by the favorite services.
     favorites: set[str] = field(default_factory=set)
     favorites_listeners: set[Callable[[], None]] = field(default_factory=set)
-    # Media metadata guard state
-    active_media: ActiveMedia | None = None
-    metadata_unsub: Any = None
-    last_metadata_write: float = 0.0  # time.monotonic() of the last write
+    # Media metadata: local file-name -> metadata index, the media players
+    # the user has targeted from the card, and the resolved cover per show.
+    media_index: "OrderedDict[str, EpisodeInfo]" = field(
+        default_factory=OrderedDict
+    )
+    watched_players: set[str] = field(default_factory=set)
+    show_images: dict[str, str] = field(default_factory=dict)
+    metadata_state_unsub: Any = None
+    metadata_poll_unsub: Any = None
+    # time.monotonic() of the last metadata write, per entity
+    last_metadata_write: dict[str, float] = field(default_factory=dict)
 
 
 async def fetch_shows(session: aiohttp.ClientSession) -> list[Show]:
@@ -179,14 +211,21 @@ async def fetch_episodes(
         if not m3u:
             continue
         text = item.get("text")
-        title = text.get("title") if isinstance(text, dict) else None
-        title = (title or "Unknown title").strip()
+        if not isinstance(text, dict):
+            text = {}
+        title = (text.get("title") or "Unknown title").strip()
+        # The API serves the same HTML under both keys; `formatted` is the
+        # documented one, `content` is kept as a fallback.
+        description = text.get("formatted") or text.get("content") or ""
+        if not isinstance(description, str):
+            description = ""
         episodes.append(
             Episode(
                 title=title,
                 url=mp3_url_from_m3u(m3u),
                 timestamp=item.get("realFrom") or item.get("plannedFrom") or 0,
                 m3u_url=m3u,
+                description=description.strip(),
             )
         )
     episodes.sort(key=lambda e: e.timestamp, reverse=True)
@@ -217,39 +256,127 @@ async def url_exists(session: aiohttp.ClientSession, url: str) -> bool:
         return False
 
 
-# Compiled once — used to detect "an archive episode is playing" from the
-# file-name-style media_title the player reports for metadata-less mp3s.
-_ARCHIVE_TITLE_RE = re.compile(ARCHIVE_TITLE_PATTERN)
+# Compiled once — matches the archive file name inside media_title or
+# media_content_id ('tilos-YYYYMMDD-HHMMSS-HHMMSS', with or without path
+# and extension), which is how we recognise one of our episodes.
+_ARCHIVE_KEY_RE = re.compile(ARCHIVE_KEY_PATTERN)
 
 # Player states in which the metadata is worth (re-)applying.
 # When the player is off/idle/unavailable ("nothing playing") we skip.
 _ACTIVE_PLAYER_STATES = {"playing", "paused", "buffering"}
 
 
-def _patch_player_state(
+def archive_key(value: Any) -> str | None:
+    """Return the 'tilos-...' file name inside `value`, if there is one."""
+    if not value:
+        return None
+    match = _ARCHIVE_KEY_RE.search(str(value))
+    return match.group(0) if match else None
+
+
+def _archive_key_from_state(state) -> str | None:
+    """Find the archive file name the player currently reports.
+
+    Music Assistant may expose the original URL in media_content_id, other
+    players only the bare file name in media_title — check both.
+    """
+    for attr in ("media_content_id", "media_title"):
+        key = archive_key(state.attributes.get(attr))
+        if key is not None:
+            return key
+    return None
+
+
+def register_episode(
+    runtime: TilosRuntimeData,
+    episode: Episode,
+    show_name: str,
+    image_url: str,
+) -> str | None:
+    """Remember one episode's metadata under its mp3 file name."""
+    key = archive_key(episode.url)
+    if key is None:
+        return None
+
+    runtime.media_index[key] = EpisodeInfo(
+        key=key,
+        title=episode.title,
+        artist=f"{show_name}{MEDIA_ARTIST_SUFFIX}",
+        image_url=image_url,
+        url=episode.url,
+    )
+    runtime.media_index.move_to_end(key)
+
+    # Keep the index bounded — drop the least recently registered episodes.
+    while len(runtime.media_index) > MEDIA_INDEX_MAX_ENTRIES:
+        runtime.media_index.popitem(last=False)
+
+    return key
+
+
+def register_episodes(
+    runtime: TilosRuntimeData,
+    episodes: list[Episode],
+    show_name: str,
+    image_url: str,
+) -> None:
+    """Remember a whole episode list (called when a show is fetched)."""
+    for episode in episodes:
+        register_episode(runtime, episode, show_name, image_url)
+
+
+async def resolve_show_image(
+    session: aiohttp.ClientSession,
+    runtime: TilosRuntimeData,
+    alias: str,
+) -> str:
+    """Resolve (and cache) the cover image URL of one show.
+
+    Uses the show-specific image when it exists on the server, otherwise
+    the integration's brand logo. Cached per show so the HEAD request runs
+    once per show instead of once per episode.
+    """
+    cached = runtime.show_images.get(alias)
+    if cached is not None:
+        return cached
+
+    candidate = EPISODE_IMAGE_URL.format(alias=alias)
+    if await url_exists(session, candidate):
+        image = candidate
+    else:
+        _LOGGER.debug(
+            "Cover %s not available, falling back to brand logo", candidate
+        )
+        image = DEFAULT_EPISODE_IMAGE
+
+    runtime.show_images[alias] = image
+    return image
+
+
+def _patch_player_metadata(
     hass: HomeAssistant,
     runtime: TilosRuntimeData,
-    media: ActiveMedia,
+    entity_id: str,
+    info: EpisodeInfo,
     force: bool = False,
 ) -> None:
-    """Write the metadata fields onto the player entity's current state.
+    """Write the episode metadata onto the player entity's current state.
 
     Only touches the state machine when something actually differs, so the
-    listener cannot create a state_changed feedback loop. Guard-triggered
-    re-writes are additionally rate-limited to one per
-    METADATA_REWRITE_INTERVAL seconds (pass force=True to bypass, used for
-    the initial patch right after play_media).
+    listener cannot create a state_changed feedback loop. Re-writes are
+    rate-limited to one per METADATA_REWRITE_INTERVAL seconds per entity
+    (pass force=True to bypass, used right after play_media).
     """
-    state = hass.states.get(media.entity_id)
+    state = hass.states.get(entity_id)
     if state is None:
         return
 
     attrs = dict(state.attributes)
     changed = False
     for key, value in (
-        ("media_title", media.title),
-        ("media_artist", media.artist),
-        ("entity_picture", media.image_url),
+        ("media_title", info.title),
+        ("media_artist", info.artist),
+        ("entity_picture", info.image_url),
     ):
         if attrs.get(key) != value:
             attrs[key] = value
@@ -258,151 +385,119 @@ def _patch_player_state(
         return
 
     now = time.monotonic()
-    if not force and now - runtime.last_metadata_write < METADATA_REWRITE_INTERVAL:
-        _LOGGER.debug("Metadata patch on %s throttled", media.entity_id)
+    last = runtime.last_metadata_write.get(entity_id, 0.0)
+    if not force and now - last < METADATA_REWRITE_INTERVAL:
+        _LOGGER.debug("Metadata patch on %s throttled", entity_id)
         return
-    runtime.last_metadata_write = now
+    runtime.last_metadata_write[entity_id] = now
 
-    hass.states.async_set(media.entity_id, state.state, attrs)
+    hass.states.async_set(entity_id, state.state, attrs)
     # Also broadcast our own event so trigger-based template helpers can
     # react deterministically — some helper types miss attribute-only
     # state_changed updates on the media player entity.
     hass.bus.async_fire(
         METADATA_EVENT,
         {
-            "entity_id": media.entity_id,
-            "media_title": media.title,
-            "media_artist": media.artist,
-            "entity_picture": media.image_url,
+            "entity_id": entity_id,
+            "media_title": info.title,
+            "media_artist": info.artist,
+            "entity_picture": info.image_url,
         },
     )
-    _LOGGER.debug("Applied media metadata to %s (state=%s)", media.entity_id, state.state)
+    _LOGGER.debug(
+        "Applied media metadata to %s (state=%s, key=%s)",
+        entity_id,
+        state.state,
+        info.key,
+    )
 
 
-def _is_archive_media(new_state) -> bool:
-    """Return True if the player is playing one of our archive episodes.
+def refresh_player_metadata(
+    hass: HomeAssistant,
+    runtime: TilosRuntimeData,
+    entity_id: str,
+    state: Any = None,
+    force: bool = False,
+) -> None:
+    """Re-apply the metadata if the player is playing a known archive file.
 
-    The archive mp3s have no ID3 tags, so while one of them is playing the
-    player reports its file name ('tilos-YYYYMMDD-HHMMSS-HHMMSS') as
-    media_title. Matching that pattern is the key: it is stable across
-    seeks, where media_content_id gets rewritten by the player integration.
-    The live stream and other sources have different titles and are skipped,
-    as are inactive players (off / idle / unavailable).
+    This is the core of the metadata handling: it always looks at what the
+    player reports *right now* and resolves it through the local index, so
+    queue playback (where the card never sees the track that starts) gets
+    the correct title/cover instead of a stale one.
     """
-    if new_state.state not in _ACTIVE_PLAYER_STATES:
-        return False
-    title = new_state.attributes.get("media_title")
-    return bool(title and _ARCHIVE_TITLE_RE.match(str(title)))
-
-
-def _start_metadata_guard(hass: HomeAssistant, runtime: TilosRuntimeData) -> None:
-    """Register a state_changed listener that re-applies the metadata.
-
-    Player integrations re-render the entity state on updates (position,
-    seek, volume, ...) and drop the attributes we patched in. The guard
-    re-applies them on every state change while the player keeps playing
-    the registered episode URL. Registered only once per config entry;
-    the active episode lives in runtime.active_media.
-    """
-    if runtime.metadata_unsub is not None:
+    if state is None:
+        state = hass.states.get(entity_id)
+    if state is None or state.state not in _ACTIVE_PLAYER_STATES:
         return
 
+    key = _archive_key_from_state(state)
+    if key is None:
+        return
+
+    info = runtime.media_index.get(key)
+    if info is None:
+        _LOGGER.debug("No metadata registered for archive file %s", key)
+        return
+
+    _patch_player_metadata(hass, runtime, entity_id, info, force=force)
+
+
+@callback
+def _start_metadata_watch(hass: HomeAssistant, runtime: TilosRuntimeData) -> None:
+    """Watch the targeted player(s) and keep the metadata patched.
+
+    Two triggers: a state_changed listener for immediate reaction to track
+    changes, and a periodic timer as a safety net. Both resolve the media
+    the player currently reports, so nothing can go stale.
+    """
+    if runtime.metadata_state_unsub is not None:
+        return
+
+    @callback
     def handle_state_changed(event: Event) -> None:
-        media = runtime.active_media
-        if media is None:
-            return
-        if event.data.get("entity_id") != media.entity_id:
+        entity_id = event.data.get("entity_id")
+        if entity_id not in runtime.watched_players:
             return
         new_state = event.data.get("new_state")
         if new_state is None:
             return
-        if not _is_archive_media(new_state):
-            _LOGGER.debug(
-                "Skipping metadata patch on %s: not an archive title (%r, state=%s)",
-                media.entity_id,
-                new_state.attributes.get("media_title"),
-                new_state.state,
-            )
-            return
-        _patch_player_state(hass, runtime, media)
+        refresh_player_metadata(hass, runtime, entity_id, new_state)
 
-    runtime.metadata_unsub = hass.bus.async_listen(EVENT_STATE_CHANGED, handle_state_changed)
-    _LOGGER.debug("Metadata guard registered for %s", runtime.media_player_entity)
+    @callback
+    def handle_poll(_now) -> None:
+        for entity_id in list(runtime.watched_players):
+            refresh_player_metadata(hass, runtime, entity_id)
 
-
-def stop_metadata_guard(runtime: TilosRuntimeData) -> None:
-    """Unregister the metadata guard (called on entry unload)."""
-    if runtime.metadata_unsub is not None:
-        runtime.metadata_unsub()
-        runtime.metadata_unsub = None
-    runtime.active_media = None
+    runtime.metadata_state_unsub = hass.bus.async_listen(
+        EVENT_STATE_CHANGED, handle_state_changed
+    )
+    runtime.metadata_poll_unsub = async_track_time_interval(
+        hass, handle_poll, timedelta(seconds=METADATA_POLL_INTERVAL)
+    )
+    _LOGGER.debug("Metadata watcher registered")
 
 
-async def apply_media_metadata(
+def stop_metadata_watch(runtime: TilosRuntimeData) -> None:
+    """Unregister the metadata watcher (called on entry unload)."""
+    if runtime.metadata_state_unsub is not None:
+        runtime.metadata_state_unsub()
+        runtime.metadata_state_unsub = None
+    if runtime.metadata_poll_unsub is not None:
+        runtime.metadata_poll_unsub()
+        runtime.metadata_poll_unsub = None
+
+
+async def _patch_after_delay(
     hass: HomeAssistant,
     runtime: TilosRuntimeData,
-    session: aiohttp.ClientSession,
     entity_id: str,
-    url: str,
-    title: str,
-    artist: str,
-    image_url: str | None,
-    delay: float = 0,
+    delay: float,
 ) -> None:
-    """Patch a media player entity's state with known playback metadata.
-
-    The archive mp3 files carry no ID3 tags, so the player entity would show
-    the raw file name. We overwrite media_title / media_artist with the data
-    the user already picked from the selects, and set entity_picture to the
-    show's cover image — or the integration's brand logo when that image
-    does not exist on the server.
-
-    Also registers a metadata guard so the patch survives entity updates
-    (seek, position tick, ...) as long as the player keeps playing this mp3.
-    """
-    # Suppress guard writes during the startup burst: Music Assistant
-    # re-renders the entity many times right after play_media. Stamping
-    # last_metadata_write at play start makes every guard patch during the
-    # first METADATA_PATCH_DELAY seconds hit the rate limit, so the only
-    # write in that window is our initial one below.
-    runtime.last_metadata_write = time.monotonic()
-
+    """Re-apply the metadata once the player's startup burst has settled."""
     if delay:
         await asyncio.sleep(delay)
-
-    # Resolve the cover image: show-specific image when it exists,
-    # otherwise the integration's brand logo.
-    if image_url and await url_exists(session, image_url):
-        final_image = image_url
-    else:
-        _LOGGER.debug(
-            "Cover %s not available, falling back to brand logo", image_url
-        )
-        final_image = DEFAULT_EPISODE_IMAGE
-
-    media = ActiveMedia(
-        entity_id=entity_id,
-        url=url,
-        title=title,
-        artist=artist,
-        image_url=final_image,
-    )
-    runtime.active_media = media
-    _start_metadata_guard(hass, runtime)
-
-    state = hass.states.get(entity_id)
-    if state is None:
-        _LOGGER.warning("Cannot update metadata: entity %s not found", entity_id)
-        return
-
-    _patch_player_state(hass, runtime, media, force=True)
-    _LOGGER.info(
-        "Updated %s metadata: title=%r artist=%r picture=%s",
-        entity_id,
-        title,
-        artist,
-        final_image,
-    )
+    refresh_player_metadata(hass, runtime, entity_id, force=True)
 
 
 # Service schema shared by add_favorite / remove_favorite
@@ -479,6 +574,136 @@ def _async_unregister_favorite_services(hass: HomeAssistant) -> None:
             hass.services.async_remove(DOMAIN, service)
 
 
+async def play_on_player(hass: HomeAssistant, entity_id: str, url: str) -> None:
+    """Play a URL directly on a media player (Home Assistant path)."""
+    await hass.services.async_call(
+        "media_player",
+        "play_media",
+        {
+            "entity_id": entity_id,
+            "media_content_type": "music",
+            "media_content_id": url,
+        },
+        blocking=False,
+    )
+
+
+async def play_on_music_assistant(
+    hass: HomeAssistant, entity_id: str, url: str, enqueue: str
+) -> None:
+    """Queue/play a URL through Music Assistant (queue-aware path)."""
+    await hass.services.async_call(
+        "music_assistant",
+        "play_media",
+        {
+            "entity_id": entity_id,
+            "media_id": url,
+            "enqueue": enqueue,
+        },
+        blocking=False,
+    )
+
+
+async def play_selected_episode(
+    hass: HomeAssistant,
+    runtime: TilosRuntimeData,
+    entity_id: str,
+    enqueue: str | None = None,
+) -> None:
+    """Play (or enqueue) the selected archive episode on `entity_id`.
+
+    The episode is registered in the local index first, so the metadata can
+    be resolved later — including when Music Assistant starts a queued item
+    on its own, without the card being involved.
+    """
+    episode = runtime.selected_episode
+    show = runtime.selected_show
+    if episode is None:
+        _LOGGER.warning("Play requested but no episode is selected")
+        return
+    if show is None:
+        _LOGGER.warning("Play requested but no show is selected")
+        return
+
+    image_url = await resolve_show_image(
+        async_get_clientsession(hass), runtime, show.alias
+    )
+    register_episode(runtime, episode, show.name, image_url)
+
+    # Watch this player from now on: the metadata watcher resolves whatever
+    # archive file it reports (direct playback and queue items alike).
+    runtime.watched_players.add(entity_id)
+    _start_metadata_watch(hass, runtime)
+
+    if enqueue is None:
+        _LOGGER.info(
+            "Playing '%s' on %s: %s", episode.title, entity_id, episode.url
+        )
+        await play_on_player(hass, entity_id, episode.url)
+    else:
+        _LOGGER.info(
+            "Enqueueing '%s' (%s) on %s: %s",
+            episode.title,
+            enqueue,
+            entity_id,
+            episode.url,
+        )
+        await play_on_music_assistant(hass, entity_id, episode.url, enqueue)
+
+    # The archive mp3 has no ID3 tags, so re-apply the metadata once the
+    # player's startup burst has settled.
+    hass.async_create_task(
+        _patch_after_delay(hass, runtime, entity_id, METADATA_PATCH_DELAY)
+    )
+
+
+async def play_live_stream(hass: HomeAssistant, entity_id: str) -> None:
+    """Play the live Tilos stream on `entity_id`."""
+    _LOGGER.info("Playing live stream on %s: %s", entity_id, LIVE_STREAM_URL)
+    await play_on_player(hass, entity_id, LIVE_STREAM_URL)
+
+
+PLAY_SERVICE_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_ENTITY_ID): cv.entity_id,
+        vol.Optional(ATTR_MEDIA, default=MEDIA_EPISODE): vol.In(
+            [MEDIA_EPISODE, MEDIA_LIVE]
+        ),
+        # When set, the episode goes through Music Assistant's queue
+        # (play / add / next / ...). Without it we play directly.
+        vol.Optional(ATTR_ENQUEUE): vol.In(ENQUEUE_OPTIONS),
+    }
+)
+
+
+@callback
+def _async_register_play_service(
+    hass: HomeAssistant, runtime: TilosRuntimeData
+) -> None:
+    """Register the play service for the loaded entry."""
+
+    async def async_play(call: ServiceCall) -> None:
+        """Play the selection on the media player passed in the call."""
+        entity_id = call.data[ATTR_ENTITY_ID]
+        media = call.data.get(ATTR_MEDIA, MEDIA_EPISODE)
+        enqueue = call.data.get(ATTR_ENQUEUE)
+        if media == MEDIA_LIVE:
+            await play_live_stream(hass, entity_id)
+            return
+        await play_selected_episode(hass, runtime, entity_id, enqueue)
+
+    hass.services.async_register(
+        DOMAIN, SERVICE_PLAY, async_play, schema=PLAY_SERVICE_SCHEMA
+    )
+
+
+@callback
+def _async_unregister_play_service(hass: HomeAssistant) -> None:
+    """Drop the play service when the entry is unloaded."""
+    if hass.services.has_service(DOMAIN, SERVICE_PLAY):
+        hass.services.async_remove(DOMAIN, SERVICE_PLAY)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Tilos Radio Player from a config entry."""
     await _register_frontend(hass)
@@ -503,18 +728,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     entry.runtime_data = runtime
 
+    # Watch the integration-configured player from the start, so playback
+    # that did not go through the card (e.g. started from the Music
+    # Assistant app) also gets the metadata once the file is in the index.
+    runtime.watched_players.add(runtime.media_player_entity)
+    _start_metadata_watch(hass, runtime)
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _async_register_favorite_services(hass, runtime)
+    _async_register_play_service(hass, runtime)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    stop_metadata_guard(entry.runtime_data)
+    stop_metadata_watch(entry.runtime_data)
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
         _async_unregister_favorite_services(hass)
+        _async_unregister_play_service(hass)
     return unloaded
 
 

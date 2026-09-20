@@ -12,6 +12,14 @@ const STAR_FILLED_PATH =
 const STAR_OUTLINE_PATH =
   "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z";
 
+/* Info ikon a műsorleírás gombhoz. */
+const INFO_OUTLINE_PATH =
+  "M11,9H13V7H11M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,17H13V11H11V17Z";
+
+/* Listához adás ikon (Music Assistant mód). */
+const PLAYLIST_ADD_PATH =
+  "M3,15H9V13H3V15M3,19H9V17H3V19M3,11H13V9H3V11M3,7H13V5H3V7M17,11V8H15V11H12V13H15V16H17V13H20V11H17Z";
+
 const FAVORITES_GROUP_LABEL =
   "Kedvencek";
 
@@ -26,6 +34,22 @@ const SHOW_TYPE_GROUPS = [
     label: "Beszélgetős műsorok",
   },
 ];
+
+/* Címkék a vizuális beállítás-szerkesztőhöz. */
+const EDITOR_LABELS = {
+  integration_type: "Integráció típusa",
+  media_player: "Média lejátszó entitás",
+};
+
+const EDITOR_HELPERS = {
+  integration_type:
+    "Home Assistant: a tilos_player.play szolgáltatást használja. " +
+    "Music Assistant: a backend a music_assistant.play_media szolgáltatást hívja, " +
+    "így a kártya tud a lejátszási sor végére fűzni.",
+  media_player:
+    "A kártya gombjai ezen a lejátszón futnak. Ha üres, a Lejátszás gomb entitás " +
+    "media_player attribútumából veszi a céllejátszót.",
+};
 
 class TilosPlayerCard extends HTMLElement {
   constructor() {
@@ -48,6 +72,12 @@ class TilosPlayerCard extends HTMLElement {
     this._openDropdown = null;
     this._activeMenu = null;
 
+    // A műsorleírás panel nyitva van-e, és
+    // mi van épp benne (elkerüli az újraírást
+    // minden state update-nél).
+    this._descriptionOpen = false;
+    this._renderedDescription = null;
+
     this._documentPointerDown = null;
     this._boundReposition = null;
     this._boundKeyDown = null;
@@ -55,12 +85,13 @@ class TilosPlayerCard extends HTMLElement {
 
   setConfig(config) {
     this._config = {
+      integration_type: "home_assistant",
       show_entity: "select.tilos_radio_show",
       episode_entity: "select.tilos_radio_episode",
       favorites_entity: "sensor.tilos_radio_favorites",
-      reload_entity: "button.tilos_radio_reload_shows",
       play_entity: "button.tilos_radio_play",
       live_entity: "button.tilos_radio_live",
+      media_player: "",
       logo: "/api/brands/integration/tilos_player/logo.png",
       ...config,
     };
@@ -91,6 +122,23 @@ class TilosPlayerCard extends HTMLElement {
     return 6;
   }
 
+  /*
+   * Interaktív beállítás-szerkesztő.
+   * A YAML mód mellett a Lovelace
+   * vizuális szerkesztője is használható.
+   */
+  static getConfigElement() {
+    return document.createElement(
+      "tilos-player-card-editor"
+    );
+  }
+
+  static getStubConfig() {
+    return {
+      integration_type: "home_assistant",
+    };
+  }
+
   connectedCallback() {
     this._render();
   }
@@ -105,6 +153,18 @@ class TilosPlayerCard extends HTMLElement {
     }
 
     this._closeDropdown();
+
+    /*
+     * A render új DOM-ot épít, ezért a
+     * leírás tartalmát újra be kell tölteni.
+     */
+    this._renderedDescription = null;
+
+    const musicAssistant =
+      this._isMusicAssistant();
+
+    const buttonColumns =
+      musicAssistant ? 3 : 2;
 
     this.shadowRoot.innerHTML = `
       <style>
@@ -212,6 +272,75 @@ class TilosPlayerCard extends HTMLElement {
           height: 26px;
 
           fill: currentColor;
+        }
+
+        /* Info gomb az epizód sorban, mint a csillag. */
+        .info-button {
+          flex: 0 0 auto;
+
+          width: 52px;
+          min-height: 52px;
+
+          box-sizing: border-box;
+
+          display: flex;
+          align-items: center;
+          justify-content: center;
+
+          padding: 0;
+
+          border: 1px solid var(--divider-color, #ddd);
+          border-radius: 8px;
+
+          background: var(--card-background-color, #d9d9d9);
+          color: var(--secondary-text-color, #757575);
+
+          cursor: pointer;
+
+          transition:
+            background-color 0.15s ease,
+            color 0.15s ease,
+            border-color 0.15s ease;
+        }
+
+        .info-button:hover:not(:disabled) {
+          background: var(--secondary-background-color, #d9d9d9);
+        }
+
+        .info-button:focus-visible {
+          outline: 2px solid var(--primary-color);
+          outline-offset: 1px;
+        }
+
+        .info-button:disabled {
+          opacity: 0.5;
+          cursor: default;
+        }
+
+        /* Nyitott állapotban invertált szín. */
+        .info-button.active {
+          background: var(--primary-color);
+          border-color: var(--primary-color);
+          color: var(--text-primary-color, #fff);
+        }
+
+        .info-button svg {
+          width: 26px;
+          height: 26px;
+
+          fill: currentColor;
+        }
+
+        /* Epizód választó + info gomb egy sorban. */
+        .episode-row {
+          display: flex;
+          align-items: stretch;
+          gap: 10px;
+        }
+
+        .episode-row .dropdown {
+          flex: 1;
+          min-width: 0;
         }
 
         .dropdown-button {
@@ -551,6 +680,72 @@ class TilosPlayerCard extends HTMLElement {
 
           fill: currentColor;
         }
+
+        /*
+         * Az epizód műsorleírása / tracklistája.
+         * A gombsor alatt nyílik ki és lefelé
+         * növeli a kártyát.
+         */
+        .description-panel {
+          margin-top: 12px;
+
+          box-sizing: border-box;
+
+          padding: 12px 14px;
+
+          border: 1px solid var(--divider-color, #ddd);
+          border-radius: 8px;
+
+          background: var(--card-background-color, #fff);
+          color: var(--primary-text-color, #212121);
+
+          font-size: 14px;
+          line-height: 1.5;
+
+          overflow-y: auto;
+          overflow-wrap: anywhere;
+
+          max-height: 420px;
+
+          scrollbar-width: thin;
+        }
+
+        .description-panel[hidden] {
+          display: none;
+        }
+
+        .description-panel img {
+          max-width: 100%;
+          height: auto;
+
+          border-radius: 6px;
+        }
+
+        .description-panel p {
+          margin: 0 0 10px;
+        }
+
+        .description-panel p:last-child {
+          margin-bottom: 0;
+        }
+
+        .description-panel a {
+          color: var(--primary-color);
+        }
+
+        .description-panel ul,
+        .description-panel ol {
+          margin: 0 0 10px;
+          padding-left: 22px;
+        }
+
+        .description-panel h1,
+        .description-panel h2,
+        .description-panel h3 {
+          margin: 0 0 8px;
+          font-size: 1em;
+          font-weight: 700;
+        }
       </style>
 
       <ha-card class="card">
@@ -595,52 +790,75 @@ class TilosPlayerCard extends HTMLElement {
             </div>
           </div>
 
-          <div
-            class="dropdown"
-            data-entity="${this._config.episode_entity}"
-          >
+          <div class="episode-row">
             <button
-              class="dropdown-button disabled"
+              class="info-button"
               type="button"
               disabled
+              aria-expanded="false"
+              title="Nincs műsorleírás"
             >
-              <span class="dropdown-content">
-                <span class="dropdown-caption">
-                  Epizód
-                </span>
+              <svg viewBox="0 0 24 24">
+                <path d="${INFO_OUTLINE_PATH}"/>
+              </svg>
+            </button>
 
-                <span class="dropdown-value">
-                  <span
-                    class="dropdown-label placeholder"
-                    data-text="Válassz epizódot..."
-                  >
-                    Válassz epizódot...
+            <div
+              class="dropdown"
+              data-entity="${this._config.episode_entity}"
+            >
+              <button
+                class="dropdown-button disabled"
+                type="button"
+                disabled
+              >
+                <span class="dropdown-content">
+                  <span class="dropdown-caption">
+                    Epizód
+                  </span>
+
+                  <span class="dropdown-value">
+                    <span
+                      class="dropdown-label placeholder"
+                      data-text="Válassz epizódot..."
+                    >
+                      Válassz epizódot...
+                    </span>
                   </span>
                 </span>
-              </span>
 
-              <span class="dropdown-arrow"></span>
-            </button>
+                <span class="dropdown-arrow"></span>
+              </button>
+            </div>
           </div>
         </div>
 
-        <div class="buttons">
+        <div
+          class="buttons"
+          style="grid-template-columns: repeat(${buttonColumns}, 1fr)"
+        >
+          ${
+            musicAssistant
+              ? `
           <button
-            class="action-button"
-            data-entity="${this._config.reload_entity}"
+            class="action-button queue"
+            data-action="queue"
             type="button"
           >
             <span class="icon">
               <svg viewBox="0 0 24 24">
-                <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+                <path d="${PLAYLIST_ADD_PATH}"/>
               </svg>
             </span>
-            <span>Frissítés</span>
+            <span>Sorba</span>
           </button>
+          `
+              : ""
+          }
 
           <button
             class="action-button play"
-            data-entity="${this._config.play_entity}"
+            data-action="play"
             type="button"
           >
             <span class="icon">
@@ -653,7 +871,7 @@ class TilosPlayerCard extends HTMLElement {
 
           <button
             class="action-button live"
-            data-entity="${this._config.live_entity}"
+            data-action="live"
             type="button"
           >
             <span class="icon">
@@ -663,6 +881,10 @@ class TilosPlayerCard extends HTMLElement {
             </span>
             <span>Élő adás</span>
           </button>
+        </div>
+
+        <div class="description-panel" hidden>
+          <div class="description-content"></div>
         </div>
       </ha-card>
     `;
@@ -707,29 +929,85 @@ class TilosPlayerCard extends HTMLElement {
       );
     }
 
+    const infoButton =
+      this.shadowRoot.querySelector(
+        ".info-button"
+      );
+
+    if (infoButton) {
+      infoButton.addEventListener(
+        "click",
+        (event) => {
+          event.stopPropagation();
+          this._toggleDescription();
+        }
+      );
+    }
+
     this.shadowRoot
       .querySelectorAll(".action-button")
       .forEach((button) => {
         button.addEventListener(
           "click",
           () => {
-            const entityId =
-              button.dataset.entity;
-
-            if (
-              !entityId ||
-              button.disabled
-            ) {
+            if (button.disabled) {
               return;
             }
 
-            this._hass.callService(
-              "button",
-              "press",
-              {
-                entity_id: entityId,
-              }
-            );
+            const action =
+              button.dataset.action;
+
+            /*
+             * Music Assistant módban a Sorba gomb
+             * a sor végére fűzi az epizódot
+             * (enqueue: add). A backend hívja a
+             * music_assistant.play_media-t.
+             */
+            if (action === "queue") {
+              this._callTilosPlay(
+                "episode",
+                "add"
+              );
+
+              return;
+            }
+
+            /*
+             * Music Assistant módban a
+             * lejátszás enqueue: play módon
+             * indul (a sor megtartásával).
+             */
+            if (
+              action === "play" &&
+              this._isMusicAssistant()
+            ) {
+              this._callTilosPlay(
+                "episode",
+                "play"
+              );
+
+              return;
+            }
+
+            /*
+             * Élő adás: a tilos_player.play
+             * szolgáltatás játssza le a
+             * választott lejátszón.
+             */
+            if (action === "live") {
+              this._callTilosPlay("live");
+
+              return;
+            }
+
+            /*
+             * Home Assistant módban a
+             * kiválasztott epizód a választott
+             * lejátszón, metaadattal együtt.
+             */
+            if (action === "play") {
+              this._callTilosPlay("episode");
+            }
           }
         );
       });
@@ -779,16 +1057,45 @@ class TilosPlayerCard extends HTMLElement {
     this.shadowRoot
       .querySelectorAll(".action-button")
       .forEach((button) => {
-        const entityId =
-          button.dataset.entity;
-
-        const state =
-          entityId
-            ? this._hass.states[entityId]
-            : null;
+        const action =
+          button.dataset.action;
 
         /*
-         * PLAY:
+         * SORBA / MA LEJÁTSZÁS:
+         *
+         * Music Assistant módban a kártya
+         * közvetlenül a music_assistant.play_media
+         * szolgáltatást hívja, ezért a gomb
+         * akkor aktív, ha van kiválasztott
+         * epizód URL és céllejátszó.
+         */
+        if (
+          action === "queue" ||
+          (
+            action === "play" &&
+            this._isMusicAssistant()
+          )
+        ) {
+          button.disabled = !this._maReady();
+
+          return;
+        }
+
+        /*
+         * LIVE: a tilos_player.play
+         * szolgáltatás a választott
+         * lejátszó entitáson fut, ezért az
+         * a döntő, hogy van-e kiválasztott
+         * lejátszó.
+         */
+        if (action === "live") {
+          button.disabled = !this._targetPlayer();
+
+          return;
+        }
+
+        /*
+         * PLAY (Home Assistant mód):
          *
          * A button entity állapota nem dönthet arról,
          * hogy a gomb használható-e.
@@ -798,25 +1105,14 @@ class TilosPlayerCard extends HTMLElement {
          * unavailable is lehet, miközben a frontendben
          * már megvan az epizód.
          */
-        if (
-          entityId ===
-          this._config.play_entity
-        ) {
+        if (action === "play") {
           button.disabled =
-            this._selectedEpisode === null;
-
-          return;
+            this._selectedEpisode === null ||
+            !this._targetPlayer();
         }
-
-        /*
-         * Reload / Live:
-         * csak a ténylegesen unavailable entity
-         * legyen letiltva.
-         */
-        button.disabled =
-          !state ||
-          state.state === "unavailable";
       });
+
+    this._updateInfoButton(episodeState);
 
     if (this._openDropdown) {
       this._repositionDropdown();
@@ -1119,6 +1415,231 @@ class TilosPlayerCard extends HTMLElement {
         show_id: showId,
       }
     );
+  }
+
+  _isMusicAssistant() {
+    return (
+      this._config.integration_type ===
+      "music_assistant"
+    );
+  }
+
+  /*
+   * A céllejátszó entitás.
+   *
+   * Elsődlegesen a kártya beállításaiban
+   * választott media_player, tartalékként
+   * a play button entity "media_player"
+   * attribútuma.
+   */
+  _targetPlayer() {
+    if (this._config.media_player) {
+      return this._config.media_player;
+    }
+
+    const playState =
+      this._hass.states[
+        this._config.play_entity
+      ];
+
+    return (
+      playState?.attributes
+        ?.media_player || ""
+    );
+  }
+
+  /*
+   * A kiválasztott epizód mp3 URL-je.
+   *
+   * Csak akkor adjuk vissza, ha az
+   * entity state tényleg az általunk
+   * kiválasztott epizód, különben a
+   * kattintás utáni rövid átmeneti
+   * időben a régi URL-t kapnánk.
+   */
+  _episodeUrl(episodeState) {
+    if (
+      this._selectedEpisode === null ||
+      !episodeState ||
+      String(episodeState.state) !==
+        String(this._selectedEpisode)
+    ) {
+      return "";
+    }
+
+    const url =
+      episodeState.attributes?.mp3_url;
+
+    return typeof url === "string"
+      ? url
+      : "";
+  }
+
+  /*
+   * A kiválasztott epizód HTML
+   * műsorleírása / tracklistája.
+   */
+  _episodeDescription(episodeState) {
+    if (
+      this._selectedEpisode === null ||
+      !episodeState ||
+      String(episodeState.state) !==
+        String(this._selectedEpisode)
+    ) {
+      return "";
+    }
+
+    const description =
+      episodeState.attributes
+        ?.description;
+
+    return typeof description === "string"
+      ? description
+      : "";
+  }
+
+  _maReady() {
+    if (!this._targetPlayer()) {
+      return false;
+    }
+
+    const episodeState =
+      this._hass.states[
+        this._config.episode_entity
+      ];
+
+    return Boolean(
+      this._episodeUrl(episodeState)
+    );
+  }
+
+  /*
+   * Lejátszás a tilos_player.play
+   * szolgáltatással a választott
+   * lejátszó entitáson.
+   *
+   * media = "episode" -> a kiválasztott
+   *                       archív epizód,
+   *                       metaadattal együtt
+   * media = "live"    -> az élő adás
+   *
+   * enqueue megadásával (Music Assistant)
+   * a backend a music_assistant.play_media
+   * szolgáltatást hívja, így az epizód a
+   * lejátszási sorba kerül (add/play/...).
+   */
+  _callTilosPlay(media, enqueue) {
+    const target = this._targetPlayer();
+
+    if (!target) {
+      return;
+    }
+
+    const data = {
+      entity_id: target,
+      media,
+    };
+
+    if (enqueue) {
+      data.enqueue = enqueue;
+    }
+
+    this._hass.callService(
+      "tilos_player",
+      "play",
+      data
+    );
+  }
+
+  /*
+   * Az info gomb és a leírás panel
+   * állapotának frissítése.
+   */
+  _updateInfoButton(episodeState) {
+    const button =
+      this.shadowRoot.querySelector(
+        ".info-button"
+      );
+
+    const panel =
+      this.shadowRoot.querySelector(
+        ".description-panel"
+      );
+
+    if (!button || !panel) {
+      return;
+    }
+
+    const description =
+      this._episodeDescription(episodeState);
+
+    const hasDescription =
+      description.length > 0;
+
+    if (!hasDescription) {
+      this._descriptionOpen = false;
+    }
+
+    button.disabled = !hasDescription;
+
+    const open =
+      this._descriptionOpen &&
+      hasDescription;
+
+    button.classList.toggle(
+      "active",
+      open
+    );
+
+    button.setAttribute(
+      "aria-expanded",
+      open ? "true" : "false"
+    );
+
+    button.title = !hasDescription
+      ? "Nincs műsorleírás"
+      : open
+        ? "Leírás elrejtése"
+        : "Leírás megjelenítése";
+
+    const content =
+      panel.querySelector(
+        ".description-content"
+      );
+
+    if (
+      content &&
+      this._renderedDescription !==
+        description
+    ) {
+      this._renderedDescription =
+        description;
+
+      content.innerHTML = description;
+    }
+
+    panel.hidden = !open;
+  }
+
+  _toggleDescription() {
+    const button =
+      this.shadowRoot.querySelector(
+        ".info-button"
+      );
+
+    if (!button || button.disabled) {
+      return;
+    }
+
+    this._descriptionOpen =
+      !this._descriptionOpen;
+
+    const episodeState =
+      this._hass.states[
+        this._config.episode_entity
+      ];
+
+    this._updateInfoButton(episodeState);
   }
 
   _updateEpisodeDropdown(stateObj) {
@@ -2056,6 +2577,114 @@ class TilosPlayerCard extends HTMLElement {
   }
 }
 
+/*
+ * Vizuális beállítás-szerkesztő.
+ *
+ * A Lovelace "Vizuális szerkesztő"
+ * fület ez a ha-form alapú elem adja.
+ * Az integráció típusa legördülőből
+ * választható, Music Assistant módban
+ * megjelenik a céllejátszó mező is.
+ */
+class TilosPlayerCardEditor extends HTMLElement {
+  constructor() {
+    super();
+
+    this._hass = null;
+    this._config = null;
+    this._form = null;
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._sync();
+  }
+
+  get hass() {
+    return this._hass;
+  }
+
+  setConfig(config) {
+    this._config = config || {};
+    this._sync();
+  }
+
+  _sync() {
+    if (!this._hass || !this._config) {
+      return;
+    }
+
+    if (!this._form) {
+      this._form =
+        document.createElement("ha-form");
+
+      this._form.addEventListener(
+        "value-changed",
+        (event) => {
+          event.stopPropagation();
+
+          this.dispatchEvent(
+            new CustomEvent(
+              "config-changed",
+              {
+                detail: {
+                  config: event.detail.value,
+                },
+                bubbles: true,
+                composed: true,
+              }
+            )
+          );
+        }
+      );
+
+      this.appendChild(this._form);
+    }
+
+    this._form.hass = this._hass;
+    this._form.data = this._config;
+    this._form.schema = this._schema();
+
+    this._form.computeLabel = (schema) =>
+      EDITOR_LABELS[schema.name] ||
+      schema.name;
+
+    this._form.computeHelper = (schema) =>
+      EDITOR_HELPERS[schema.name] || "";
+  }
+
+  _schema() {
+    return [
+      {
+        name: "integration_type",
+        selector: {
+          select: {
+            mode: "dropdown",
+            options: [
+              {
+                value: "home_assistant",
+                label: "Home Assistant",
+              },
+              {
+                value: "music_assistant",
+                label: "Music Assistant",
+              },
+            ],
+          },
+        },
+      },
+      {
+        name: "media_player",
+        selector: {
+          entity: {
+            domain: "media_player",
+          },
+        },
+      },
+    ];
+  }
+}
+
 if (
   !customElements.get(
     "tilos-player-card"
@@ -2064,6 +2693,17 @@ if (
   customElements.define(
     "tilos-player-card",
     TilosPlayerCard
+  );
+}
+
+if (
+  !customElements.get(
+    "tilos-player-card-editor"
+  )
+) {
+  customElements.define(
+    "tilos-player-card-editor",
+    TilosPlayerCardEditor
   );
 }
 
