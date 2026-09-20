@@ -14,7 +14,6 @@ A Tilos Rádió archívumából közvetlen lejátszás a Home Assistantban a meg
 - Lejátszás közvetlenül az archívumból, az élő műsort is lehet hallgatni.
 - HACS-ból is telepíthető, egyedi integrációként, így később tud frissülni.
 - Saját Lovelace kártya, pár kattintással beállítható.
-- Kedvenc műsorok: a műsorlistában előre kerülnek.
 - BETA: Műsor meta adatok megjelenítése (epizód cím, műsor név, és a műsor borítója)
 
 ## Villantás
