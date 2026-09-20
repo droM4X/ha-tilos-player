@@ -17,7 +17,7 @@ A Tilos Rádió archívumából közvetlen lejátszás a Home Assistantban a meg
 
 ## Villantás
 #### A kártya
-![Kártya előnézet](assets/card-preview.png)
+![Kártya előnézet](assets/card-preview.jpg)
 
 #### Irányítópulton beállítva, különböző média lejátszókon
 ![Irányítópult előnézet](assets/dashboard-preview.jpg)
