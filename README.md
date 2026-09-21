@@ -45,7 +45,8 @@ A Tilos Rádió archívumából közvetlen lejátszás a Home Assistantban a meg
   - **Integráció típusa**: Home Assistant vagy Music Assistant
   - **Média lejátszó entitás**: ezen a lejátszón futnak a kártya gombjai
   - **Link lejátszó**: közvetlen mp3 lejátszás vagy várólistára adás linkről
-- A műsorlista induláskor és 12 óránként automatikusan frissül. Műsor választás, lejátszás.
+- A műsorlista induláskor és 12 óránként automatikusan frissül.
+- Műsor választás, lejátszás.
 - Örvendezés a remek muzsikáknak :)
 
 ### Kártya yaml beállítása
