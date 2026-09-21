@@ -20,6 +20,10 @@ const INFO_OUTLINE_PATH =
 const PLAYLIST_ADD_PATH =
   "M3,15H9V13H3V15M3,19H9V17H3V19M3,11H13V9H3V11M3,7H13V5H3V7M17,11V8H15V11H12V13H15V16H17V13H20V11H17Z";
 
+/* X ikon a link lejátszó mező törléséhez. */
+const CLOSE_PATH =
+  "M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z";
+
 const FAVORITES_GROUP_LABEL =
   "Kedvencek";
 
@@ -39,6 +43,7 @@ const SHOW_TYPE_GROUPS = [
 const EDITOR_LABELS = {
   integration_type: "Integráció típusa",
   media_player: "Média lejátszó entitás",
+  link_player: "Link lejátszó",
 };
 
 const EDITOR_HELPERS = {
@@ -49,7 +54,17 @@ const EDITOR_HELPERS = {
   media_player:
     "A kártya gombjai ezen a lejátszón futnak. Ha üres, a Lejátszás gomb entitás " +
     "media_player attribútumából veszi a céllejátszót.",
+  link_player:
+    "Bekapcsolva az epizódválasztó alatt megjelenik egy mező, ahova közvetlen " +
+    "mp3 linket lehet beilleszteni. Lejátszáskor ez elsőbbséget élvez a " +
+    "kiválasztott epizóddal szemben.",
 };
+
+/*
+ * Közvetlen link lejátszás: csak .mp3-ra végződő URL fogadható el.
+ * A query string (pl. token) megengedett a .mp3 után.
+ */
+const LINK_URL_RE = /^https?:\/\/.+\.mp3(\?.*)?$/i;
 
 class TilosPlayerCard extends HTMLElement {
   constructor() {
@@ -72,11 +87,15 @@ class TilosPlayerCard extends HTMLElement {
     this._openDropdown = null;
     this._activeMenu = null;
 
-    // A műsorleírás panel nyitva van-e, és
-    // mi van épp benne (elkerüli az újraírást
-    // minden state update-nél).
-    this._descriptionOpen = false;
-    this._renderedDescription = null;
+    /*
+     * A leírás panel nyitva van-e, és mi van épp
+     * benne: "show" (műsor infó) vagy "episode"
+     * (epizód leírás). Egyszerre csak az egyik
+     * lehet nyitva.
+     */
+    this._openInfo = null;
+    /* Az utoljára kirakott panel-tartalom (elkerüli az újraírást). */
+    this._renderedInfo = null;
 
     this._documentPointerDown = null;
     this._boundReposition = null;
@@ -92,6 +111,7 @@ class TilosPlayerCard extends HTMLElement {
       play_entity: "button.tilos_radio_play",
       live_entity: "button.tilos_radio_live",
       media_player: "",
+      link_player: false,
       logo: "/api/brands/integration/tilos_player/logo.png",
       ...config,
     };
@@ -158,7 +178,7 @@ class TilosPlayerCard extends HTMLElement {
      * A render új DOM-ot épít, ezért a
      * leírás tartalmát újra be kell tölteni.
      */
-    this._renderedDescription = null;
+    this._renderedInfo = null;
 
     const musicAssistant =
       this._isMusicAssistant();
@@ -220,7 +240,17 @@ class TilosPlayerCard extends HTMLElement {
           min-width: 0;
         }
 
+        /*
+         * Csillag a kártya bal felső sarkában,
+         * a kártya belső eltartásához igazítva,
+         * hogy a többi gombbal egy vonalban legyen.
+         */
         .favorite-button {
+          position: absolute;
+          top: 16px;
+          left: 16px;
+          z-index: 3;
+
           flex: 0 0 auto;
 
           width: 52px;
@@ -239,6 +269,9 @@ class TilosPlayerCard extends HTMLElement {
 
           background: var(--card-background-color, #d9d9d9);
           color: var(--secondary-text-color, #757575);
+
+          /* A logó fölé kerül, ezért kell egy kis árnyék. */
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
 
           cursor: pointer;
 
@@ -602,6 +635,134 @@ class TilosPlayerCard extends HTMLElement {
           min-width: 0;
         }
 
+        /*
+         * Közvetlen link lejátszó: teljes szélességű
+         * beviteli mező az epizódválasztó és a
+         * gombsor között. Csak bekapcsolt opciónál
+         * látszik.
+         */
+        .link-row {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+
+          margin-bottom: 12px;
+        }
+
+        .link-row[hidden] {
+          display: none;
+        }
+
+        .link-input-wrap {
+          position: relative;
+
+          display: flex;
+          align-items: center;
+
+          width: 100%;
+        }
+
+        .link-input {
+          width: 100%;
+          min-height: 46px;
+
+          box-sizing: border-box;
+
+          padding: 8px 12px;
+          /* Hely az X ikonnak a mező végén. */
+          padding-right: 44px;
+
+          border: 1px solid var(--divider-color, #ddd);
+          border-radius: 8px;
+
+          background: var(--card-background-color, #fff);
+          color: var(--primary-text-color, #212121);
+
+          font: inherit;
+          font-size: 14px;
+        }
+
+        .link-input::placeholder {
+          color: var(--secondary-text-color, #757575);
+        }
+
+        .link-input:focus-visible {
+          outline: 2px solid var(--primary-color);
+          outline-offset: 1px;
+        }
+
+        .link-input.invalid {
+          border-color: var(--error-color, #db4437);
+        }
+
+        .link-input.invalid:focus-visible {
+          outline-color: var(--error-color, #db4437);
+        }
+
+        /*
+         * Törlő X a link mező végén — csak akkor
+         * látszik, ha van kitöltött tartalom.
+         */
+        .link-clear {
+          position: absolute;
+          right: 6px;
+
+          width: 32px;
+          height: 32px;
+
+          box-sizing: border-box;
+
+          display: flex;
+          align-items: center;
+          justify-content: center;
+
+          padding: 0;
+
+          border: 0;
+          border-radius: 50%;
+
+          background: transparent;
+          color: var(--secondary-text-color, #757575);
+
+          cursor: pointer;
+
+          transition:
+            background-color 0.15s ease,
+            color 0.15s ease;
+        }
+
+        .link-clear:hover {
+          background: var(--secondary-background-color, #e0e0e0);
+          color: var(--primary-text-color, #212121);
+        }
+
+        .link-clear:focus-visible {
+          outline: 2px solid var(--primary-color);
+          outline-offset: 1px;
+        }
+
+        .link-clear[hidden] {
+          display: none;
+        }
+
+        .link-clear svg {
+          width: 18px;
+          height: 18px;
+
+          fill: currentColor;
+        }
+
+        .link-error {
+          font-size: 12px;
+          line-height: 1.3;
+
+          color: var(--error-color, #db4437);
+        }
+
+        .link-error[hidden] {
+          display: none;
+        }
+
         .buttons {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
@@ -746,22 +907,52 @@ class TilosPlayerCard extends HTMLElement {
           font-size: 1em;
           font-weight: 700;
         }
+
+        /* Műsor infó: a cím nagyobb az első sorban. */
+        .description-panel .show-info-title {
+          margin: 0 0 8px;
+
+          font-size: 1.2em;
+          font-weight: 700;
+          line-height: 1.25;
+        }
+
+        .description-panel .show-info-definition {
+          margin: 0 0 10px;
+        }
+
+        .description-panel .show-info-description {
+          margin: 0;
+        }
       </style>
 
       <ha-card class="card">
+        <button
+          class="favorite-button"
+          type="button"
+          disabled
+          aria-pressed="false"
+          title="Hozzáadás a kedvencekhez"
+        >
+          <svg viewBox="0 0 24 24">
+            <path d="${STAR_OUTLINE_PATH}"/>
+          </svg>
+        </button>
+
         <img class="logo" alt="Tilos Rádió">
 
         <div class="selectors">
           <div class="show-row">
             <button
-              class="favorite-button"
+              class="info-button"
+              data-info="show"
               type="button"
               disabled
-              aria-pressed="false"
-              title="Hozzáadás a kedvencekhez"
+              aria-expanded="false"
+              title="Nincs műsorleírás"
             >
               <svg viewBox="0 0 24 24">
-                <path d="${STAR_OUTLINE_PATH}"/>
+                <path d="${INFO_OUTLINE_PATH}"/>
               </svg>
             </button>
 
@@ -793,6 +984,7 @@ class TilosPlayerCard extends HTMLElement {
           <div class="episode-row">
             <button
               class="info-button"
+              data-info="episode"
               type="button"
               disabled
               aria-expanded="false"
@@ -830,6 +1022,40 @@ class TilosPlayerCard extends HTMLElement {
                 <span class="dropdown-arrow"></span>
               </button>
             </div>
+          </div>
+        </div>
+
+        <div
+          class="link-row"
+          ${this._config.link_player ? "" : "hidden"}
+        >
+          <div class="link-input-wrap">
+            <input
+              class="link-input"
+              type="text"
+              inputmode="url"
+              spellcheck="false"
+              autocomplete="off"
+              placeholder="Az mp3 fájl közvetlen linkje"
+              aria-label="Közvetlen mp3 link"
+            />
+
+            <button
+              class="link-clear"
+              type="button"
+              hidden
+              aria-label="Link törlése"
+              title="Link törlése"
+            >
+              <svg viewBox="0 0 24 24">
+                <path d="${CLOSE_PATH}"/>
+              </svg>
+            </button>
+          </div>
+
+          <div class="link-error" hidden>
+            Érvénytelen link – csak .mp3-ra végződő
+            URL játszható le.
           </div>
         </div>
 
@@ -929,17 +1155,43 @@ class TilosPlayerCard extends HTMLElement {
       );
     }
 
-    const infoButton =
+    this.shadowRoot
+      .querySelectorAll(".info-button")
+      .forEach((button) => {
+        button.addEventListener(
+          "click",
+          (event) => {
+            event.stopPropagation();
+            this._toggleInfo(
+              button.dataset.info
+            );
+          }
+        );
+      });
+
+    const linkInput =
       this.shadowRoot.querySelector(
-        ".info-button"
+        ".link-input"
       );
 
-    if (infoButton) {
-      infoButton.addEventListener(
+    if (linkInput) {
+      linkInput.addEventListener(
+        "input",
+        () => this._update()
+      );
+    }
+
+    const linkClear =
+      this.shadowRoot.querySelector(
+        ".link-clear"
+      );
+
+    if (linkClear) {
+      linkClear.addEventListener(
         "click",
         (event) => {
           event.stopPropagation();
-          this._toggleDescription();
+          this._clearLink();
         }
       );
     }
@@ -964,10 +1216,7 @@ class TilosPlayerCard extends HTMLElement {
              * music_assistant.play_media-t.
              */
             if (action === "queue") {
-              this._callTilosPlay(
-                "episode",
-                "add"
-              );
+              this._playSource("add");
 
               return;
             }
@@ -981,10 +1230,7 @@ class TilosPlayerCard extends HTMLElement {
               action === "play" &&
               this._isMusicAssistant()
             ) {
-              this._callTilosPlay(
-                "episode",
-                "play"
-              );
+              this._playSource("play");
 
               return;
             }
@@ -1006,7 +1252,7 @@ class TilosPlayerCard extends HTMLElement {
              * lejátszón, metaadattal együtt.
              */
             if (action === "play") {
-              this._callTilosPlay("episode");
+              this._playSource();
             }
           }
         );
@@ -1107,12 +1353,21 @@ class TilosPlayerCard extends HTMLElement {
          */
         if (action === "play") {
           button.disabled =
-            this._selectedEpisode === null ||
-            !this._targetPlayer();
+            !this._targetPlayer() ||
+            this._linkInvalid() ||
+            (
+              this._selectedEpisode === null &&
+              this._linkUrl().length === 0
+            );
         }
       });
 
-    this._updateInfoButton(episodeState);
+    this._updateInfoButtons(
+      showState,
+      episodeState
+    );
+
+    this._updateLinkInput();
 
     if (this._openDropdown) {
       this._repositionDropdown();
@@ -1498,8 +1753,152 @@ class TilosPlayerCard extends HTMLElement {
       : "";
   }
 
+  /*
+   * A kiválasztott műsor info mezői
+   * (név, definition, description) a show
+   * select attribútumaiból.
+   *
+   * Csak akkor adjuk vissza, ha az entity
+   * state tényleg az általunk kiválasztott
+   * műsor, különben a váltás utáni rövid
+   * átmeneti időben a régi leírást kapnánk.
+   */
+  _showInfo(showState) {
+    if (
+      this._selectedShow === null ||
+      !showState ||
+      String(showState.state) !==
+        String(this._selectedShow)
+    ) {
+      return null;
+    }
+
+    const attrs =
+      showState.attributes || {};
+
+    const asText = (value) =>
+      typeof value === "string"
+        ? value
+        : "";
+
+    return {
+      name: asText(attrs.info_name),
+      definition: asText(
+        attrs.info_definition
+      ),
+      description: asText(
+        attrs.info_description
+      ),
+    };
+  }
+
+  _escapeHtml(text) {
+    return String(text)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  /*
+   * Közvetlen link mező értéke
+   * (nyers és validált formában).
+   */
+  _linkRaw() {
+    const input =
+      this.shadowRoot.querySelector(
+        ".link-input"
+      );
+
+    return input
+      ? input.value.trim()
+      : "";
+  }
+
+  _linkUrl() {
+    const raw = this._linkRaw();
+
+    return raw &&
+      LINK_URL_RE.test(raw)
+      ? raw
+      : "";
+  }
+
+  _linkInvalid() {
+    const raw = this._linkRaw();
+
+    return (
+      raw.length > 0 &&
+      !LINK_URL_RE.test(raw)
+    );
+  }
+
+  _updateLinkInput() {
+    const input =
+      this.shadowRoot.querySelector(
+        ".link-input"
+      );
+
+    if (!input) {
+      return;
+    }
+
+    const invalid = this._linkInvalid();
+
+    input.classList.toggle(
+      "invalid",
+      invalid
+    );
+
+    input.setAttribute(
+      "aria-invalid",
+      invalid ? "true" : "false"
+    );
+
+    const error =
+      this.shadowRoot.querySelector(
+        ".link-error"
+      );
+
+    if (error) {
+      error.hidden = !invalid;
+    }
+
+    /*
+     * A törlő X csak kitöltött mezőnél
+     * látszik.
+     */
+    const clear =
+      this.shadowRoot.querySelector(
+        ".link-clear"
+      );
+
+    if (clear) {
+      clear.hidden =
+        this._linkRaw().length === 0;
+    }
+  }
+
+  _clearLink() {
+    const input =
+      this.shadowRoot.querySelector(
+        ".link-input"
+      );
+
+    if (!input) {
+      return;
+    }
+
+    input.value = "";
+    this._update();
+  }
+
   _maReady() {
     if (!this._targetPlayer()) {
+      return false;
+    }
+
+    if (this._linkInvalid()) {
       return false;
     }
 
@@ -1509,7 +1908,8 @@ class TilosPlayerCard extends HTMLElement {
       ];
 
     return Boolean(
-      this._episodeUrl(episodeState)
+      this._linkUrl() ||
+        this._episodeUrl(episodeState)
     );
   }
 
@@ -1552,13 +1952,64 @@ class TilosPlayerCard extends HTMLElement {
   }
 
   /*
-   * Az info gomb és a leírás panel
-   * állapotának frissítése.
+   * Lejátszás indítása: ha a link mező ki van
+   * töltve (és érvényes), azt küldjük be,
+   * különben a kiválasztott epizódot.
    */
-  _updateInfoButton(episodeState) {
-    const button =
+  _playSource(enqueue) {
+    const link = this._linkUrl();
+
+    if (link) {
+      this._callTilosPlayUrl(link, enqueue);
+      return;
+    }
+
+    this._callTilosPlay("episode", enqueue);
+  }
+
+  /*
+   * Közvetlen mp3 URL lejátszása a
+   * tilos_player.play szolgáltatással
+   * (media = "url").
+   */
+  _callTilosPlayUrl(url, enqueue) {
+    const target = this._targetPlayer();
+
+    if (!target) {
+      return;
+    }
+
+    const data = {
+      entity_id: target,
+      media: "url",
+      url,
+    };
+
+    if (enqueue) {
+      data.enqueue = enqueue;
+    }
+
+    this._hass.callService(
+      "tilos_player",
+      "play",
+      data
+    );
+  }
+
+  /*
+   * A két info gomb és a leírás panel
+   * állapotának frissítése. Egyszerre csak
+   * az egyik tartalom lehet nyitva.
+   */
+  _updateInfoButtons(showState, episodeState) {
+    const showButton =
       this.shadowRoot.querySelector(
-        ".info-button"
+        '.info-button[data-info="show"]'
+      );
+
+    const episodeButton =
+      this.shadowRoot.querySelector(
+        '.info-button[data-info="episode"]'
       );
 
     const panel =
@@ -1566,80 +2017,162 @@ class TilosPlayerCard extends HTMLElement {
         ".description-panel"
       );
 
-    if (!button || !panel) {
+    if (!showButton || !episodeButton || !panel) {
       return;
     }
 
-    const description =
-      this._episodeDescription(episodeState);
+    const html = {
+      show: this._buildShowInfoHtml(showState),
+      episode:
+        this._episodeDescription(episodeState),
+    };
 
-    const hasDescription =
-      description.length > 0;
+    const available = {
+      show: html.show.length > 0,
+      episode: html.episode.length > 0,
+    };
 
-    if (!hasDescription) {
-      this._descriptionOpen = false;
+    /*
+     * Ha a nyitott tartalom eltűnt
+     * (pl. műsorváltás), zárjuk be.
+     */
+    if (
+      this._openInfo !== null &&
+      !available[this._openInfo]
+    ) {
+      this._openInfo = null;
     }
 
-    button.disabled = !hasDescription;
+    [
+      ["show", showButton],
+      ["episode", episodeButton],
+    ].forEach(([kind, button]) => {
+      const hasContent = available[kind];
 
-    const open =
-      this._descriptionOpen &&
-      hasDescription;
+      const open =
+        this._openInfo === kind &&
+        hasContent;
 
-    button.classList.toggle(
-      "active",
-      open
-    );
+      button.disabled = !hasContent;
 
-    button.setAttribute(
-      "aria-expanded",
-      open ? "true" : "false"
-    );
+      button.classList.toggle(
+        "active",
+        open
+      );
 
-    button.title = !hasDescription
-      ? "Nincs műsorleírás"
-      : open
-        ? "Leírás elrejtése"
-        : "Leírás megjelenítése";
+      button.setAttribute(
+        "aria-expanded",
+        open ? "true" : "false"
+      );
+
+      button.title = !hasContent
+        ? kind === "show"
+          ? "Nincs műsorleírás"
+          : "Nincs epizódleírás"
+        : open
+          ? "Leírás elrejtése"
+          : "Leírás megjelenítése";
+    });
 
     const content =
       panel.querySelector(
         ".description-content"
       );
 
+    const activeHtml =
+      this._openInfo === null
+        ? ""
+        : html[this._openInfo];
+
+    /*
+     * Csak akkor írjuk újra a DOM-ot, ha
+     * tényleg változott a tartalom —
+     * így a görgetési pozíció megmarad.
+     */
+    const renderKey =
+      this._openInfo === null
+        ? ""
+        : `${this._openInfo}:${activeHtml}`;
+
     if (
       content &&
-      this._renderedDescription !==
-        description
+      this._renderedInfo !== renderKey
     ) {
-      this._renderedDescription =
-        description;
+      this._renderedInfo = renderKey;
 
-      content.innerHTML = description;
+      content.innerHTML = activeHtml;
     }
 
-    panel.hidden = !open;
+    panel.hidden = this._openInfo === null;
   }
 
-  _toggleDescription() {
+  /*
+   * A műsor info HTML-je: nagyobb cím,
+   * majd a definition, végül a description
+   * (ez HTML lehet, ezért nem escape-eljük).
+   */
+  _buildShowInfoHtml(showState) {
+    const info = this._showInfo(showState);
+
+    if (!info) {
+      return "";
+    }
+
+    const parts = [];
+
+    if (info.name) {
+      parts.push(
+        `<div class="show-info-title">${this._escapeHtml(
+          info.name
+        )}</div>`
+      );
+    }
+
+    if (info.definition) {
+      parts.push(
+        `<div class="show-info-definition">${this._escapeHtml(
+          info.definition
+        )}</div>`
+      );
+    }
+
+    if (info.description) {
+      parts.push(
+        `<div class="show-info-description">${info.description}</div>`
+      );
+    }
+
+    return parts.join("");
+  }
+
+  _toggleInfo(kind) {
     const button =
       this.shadowRoot.querySelector(
-        ".info-button"
+        `.info-button[data-info="${kind}"]`
       );
 
     if (!button || button.disabled) {
       return;
     }
 
-    this._descriptionOpen =
-      !this._descriptionOpen;
+    /*
+     * Ugyanarra a gombra kattintva zár, a
+     * másikra váltva pedig lecseréli a
+     * tartalmat (a másik gomb visszaáll).
+     */
+    this._openInfo =
+      this._openInfo === kind
+        ? null
+        : kind;
 
-    const episodeState =
+    this._updateInfoButtons(
+      this._hass.states[
+        this._config.show_entity
+      ],
       this._hass.states[
         this._config.episode_entity
-      ];
-
-    this._updateInfoButton(episodeState);
+      ]
+    );
   }
 
   _updateEpisodeDropdown(stateObj) {
@@ -2025,6 +2558,12 @@ class TilosPlayerCard extends HTMLElement {
            */
           this._selectedEpisode =
             null;
+
+          /*
+           * A nyitott leírás panel is zárul,
+           * mert mindkét tartalom cserélődik.
+           */
+          this._openInfo = null;
 
           this._selectionInitialized =
             true;
@@ -2679,6 +3218,12 @@ class TilosPlayerCardEditor extends HTMLElement {
           entity: {
             domain: "media_player",
           },
+        },
+      },
+      {
+        name: "link_player",
+        selector: {
+          boolean: {},
         },
       },
     ];

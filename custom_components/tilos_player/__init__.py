@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any, Callable
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 import aiohttp
 import homeassistant.helpers.config_validation as cv
@@ -38,6 +39,7 @@ from .const import (
     ATTR_ENQUEUE,
     ATTR_MEDIA,
     ATTR_SHOW_ID,
+    ATTR_URL,
     CONF_LOOKBACK_DAYS,
     CONF_MEDIA_PLAYER,
     DEFAULT_EPISODE_IMAGE,
@@ -52,6 +54,7 @@ from .const import (
     MEDIA_EPISODE,
     MEDIA_INDEX_MAX_ENTRIES,
     MEDIA_LIVE,
+    MEDIA_URL,
     METADATA_EVENT,
     METADATA_PATCH_DELAY,
     METADATA_POLL_INTERVAL,
@@ -59,6 +62,7 @@ from .const import (
     SERVICE_ADD_FAVORITE,
     SERVICE_PLAY,
     SERVICE_REMOVE_FAVORITE,
+    SHOW_INFO_URL,
     SHOW_TYPE_MUSIC,
     SHOWS_UPDATE_INTERVAL,
     SHOWS_URL,
@@ -95,6 +99,20 @@ class Show:
 
 
 @dataclass
+class ShowInfo:
+    """Show-level info fetched when the show is picked.
+
+    Comes from /api/show/{alias}/episodes *without* a start/end range,
+    which returns the show object instead of the episode list. `definition`
+    is a short plain-text summary, `description` is the long HTML blurb.
+    """
+
+    name: str
+    definition: str
+    description: str
+
+
+@dataclass
 class EpisodeInfo:
     """Metadata of one archive episode, keyed by its mp3 file name.
 
@@ -121,6 +139,9 @@ class TilosRuntimeData:
     media_player_entity: str
     # Session state driven by the selects
     selected_show: Show | None = None
+    # Show-level description of the selected show (fetched alongside the
+    # episode list) — shown by the card's show info button.
+    show_info: ShowInfo | None = None
     episodes: list[Episode] = field(default_factory=list)
     selected_episode: Episode | None = None
     # Favorite show IDs — owned by the favorites sensor (which persists them
@@ -241,6 +262,43 @@ def mp3_url_from_m3u(m3u_url: str) -> str:
     return url
 
 
+async def fetch_show_info(
+    session: aiohttp.ClientSession, alias: str
+) -> ShowInfo | None:
+    """Fetch a show's own metadata (definition + description).
+
+    The episodes endpoint with a start/end range returns the episode list;
+    without the range it returns the show object itself, which is where the
+    show-level definition and description live. Returns None on any
+    unexpected payload so the card simply keeps the info button disabled.
+    """
+    url = SHOW_INFO_URL.format(alias=alias)
+    _LOGGER.debug("Fetching show info: %s", url)
+
+    async with session.get(url, headers=HTTP_HEADERS) as resp:
+        resp.raise_for_status()
+        raw = await resp.json()
+
+    if not isinstance(raw, dict):
+        _LOGGER.warning(
+            "Unexpected show info payload for '%s' (type %s): %.300s",
+            alias,
+            type(raw).__name__,
+            raw,
+        )
+        return None
+
+    description = raw.get("description") or ""
+    if not isinstance(description, str):
+        description = ""
+
+    return ShowInfo(
+        name=str(raw.get("name") or "").strip(),
+        definition=str(raw.get("definition") or "").strip(),
+        description=description.strip(),
+    )
+
+
 async def url_exists(session: aiohttp.ClientSession, url: str) -> bool:
     """Return True if the URL responds with HTTP 200 (HEAD request)."""
     try:
@@ -287,6 +345,29 @@ def _archive_key_from_state(state) -> str | None:
     return None
 
 
+def _remember_media(
+    runtime: TilosRuntimeData,
+    key: str,
+    title: str,
+    artist: str,
+    image_url: str,
+    url: str,
+) -> None:
+    """Store one media metadata record in the bounded local index."""
+    runtime.media_index[key] = EpisodeInfo(
+        key=key,
+        title=title,
+        artist=artist,
+        image_url=image_url,
+        url=url,
+    )
+    runtime.media_index.move_to_end(key)
+
+    # Keep the index bounded — drop the least recently registered episodes.
+    while len(runtime.media_index) > MEDIA_INDEX_MAX_ENTRIES:
+        runtime.media_index.popitem(last=False)
+
+
 def register_episode(
     runtime: TilosRuntimeData,
     episode: Episode,
@@ -298,19 +379,14 @@ def register_episode(
     if key is None:
         return None
 
-    runtime.media_index[key] = EpisodeInfo(
-        key=key,
-        title=episode.title,
-        artist=f"{show_name}{MEDIA_ARTIST_SUFFIX}",
-        image_url=image_url,
-        url=episode.url,
+    _remember_media(
+        runtime,
+        key,
+        episode.title,
+        f"{show_name}{MEDIA_ARTIST_SUFFIX}",
+        image_url,
+        episode.url,
     )
-    runtime.media_index.move_to_end(key)
-
-    # Keep the index bounded — drop the least recently registered episodes.
-    while len(runtime.media_index) > MEDIA_INDEX_MAX_ENTRIES:
-        runtime.media_index.popitem(last=False)
-
     return key
 
 
@@ -657,6 +733,61 @@ async def play_selected_episode(
     )
 
 
+def _title_from_url(url: str) -> str:
+    """Best-effort title for a directly pasted URL (its file name)."""
+    path = urlparse(url).path or url
+    name = unquote(path.rsplit("/", 1)[-1])
+    if name.lower().endswith(".mp3"):
+        name = name[: -len(".mp3")]
+    return name.strip() or "Ismeretlen"
+
+
+async def play_direct_url(
+    hass: HomeAssistant,
+    runtime: TilosRuntimeData,
+    entity_id: str,
+    url: str,
+    enqueue: str | None = None,
+) -> None:
+    """Play (or enqueue) an mp3 URL pasted into the card's link field.
+
+    Any mp3 URL is accepted, not only Tilos archive links. When the URL is
+    one of our archive files its metadata is still registered, so the
+    title/cover stay correct while it plays.
+    """
+    if not url:
+        _LOGGER.warning("Play requested but no direct URL was given")
+        return
+
+    key = archive_key(url)
+    if key is not None:
+        _remember_media(
+            runtime,
+            key,
+            _title_from_url(url),
+            "Tilos Rádió",
+            DEFAULT_EPISODE_IMAGE,
+            url,
+        )
+
+    # Watch this player from now on, exactly like archive playback.
+    runtime.watched_players.add(entity_id)
+    _start_metadata_watch(hass, runtime)
+
+    if enqueue is None:
+        _LOGGER.info("Playing direct URL on %s: %s", entity_id, url)
+        await play_on_player(hass, entity_id, url)
+    else:
+        _LOGGER.info(
+            "Enqueueing direct URL (%s) on %s: %s", enqueue, entity_id, url
+        )
+        await play_on_music_assistant(hass, entity_id, url, enqueue)
+
+    hass.async_create_task(
+        _patch_after_delay(hass, runtime, entity_id, METADATA_PATCH_DELAY)
+    )
+
+
 async def play_live_stream(hass: HomeAssistant, entity_id: str) -> None:
     """Play the live Tilos stream on `entity_id`."""
     _LOGGER.info("Playing live stream on %s: %s", entity_id, LIVE_STREAM_URL)
@@ -667,8 +798,10 @@ PLAY_SERVICE_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_ENTITY_ID): cv.entity_id,
         vol.Optional(ATTR_MEDIA, default=MEDIA_EPISODE): vol.In(
-            [MEDIA_EPISODE, MEDIA_LIVE]
+            [MEDIA_EPISODE, MEDIA_LIVE, MEDIA_URL]
         ),
+        # Only used when media: url — any mp3 URL, not just Tilos links.
+        vol.Optional(ATTR_URL): cv.string,
         # When set, the episode goes through Music Assistant's queue
         # (play / add / next / ...). Without it we play directly.
         vol.Optional(ATTR_ENQUEUE): vol.In(ENQUEUE_OPTIONS),
@@ -689,6 +822,15 @@ def _async_register_play_service(
         enqueue = call.data.get(ATTR_ENQUEUE)
         if media == MEDIA_LIVE:
             await play_live_stream(hass, entity_id)
+            return
+        if media == MEDIA_URL:
+            url = (call.data.get(ATTR_URL) or "").strip()
+            if not url:
+                _LOGGER.warning(
+                    "Play service called with media=url but no url"
+                )
+                return
+            await play_direct_url(hass, runtime, entity_id, url, enqueue)
             return
         await play_selected_episode(hass, runtime, entity_id, enqueue)
 

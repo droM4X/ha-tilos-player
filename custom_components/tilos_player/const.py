@@ -6,6 +6,9 @@ DOMAIN = "tilos_player"
 API_BASE = "https://tilos.hu/api"
 SHOWS_URL = f"{API_BASE}/show"
 EPISODES_URL = f"{API_BASE}/show/{{alias}}/episodes?start={{start}}&end={{end}}"
+# Same endpoint without a range: returns the show object itself, whose
+# definition/description are the show-level info the card displays.
+SHOW_INFO_URL = f"{API_BASE}/show/{{alias}}/episodes"
 
 # Request timeout in seconds
 REQUEST_TIMEOUT = 30
@@ -83,6 +86,10 @@ SERVICE_PLAY = "play"
 ATTR_MEDIA = "media"
 MEDIA_EPISODE = "episode"
 MEDIA_LIVE = "live"
+# Direct URL playback (the card's optional "Link lejátszó" input). Any
+# mp3 URL is accepted, not only Tilos archive links.
+MEDIA_URL = "url"
+ATTR_URL = "url"
 # When set on the play service, the episode is queued through Music
 # Assistant instead of being played directly (play / add / next / ...).
 ATTR_ENQUEUE = "enqueue"

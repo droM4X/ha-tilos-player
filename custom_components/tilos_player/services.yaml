@@ -1,8 +1,9 @@
 play:
   name: Play
   description: >-
-    Play the selected archive episode or the live stream on the given media
-    player, and apply the Tilos metadata (title, show name, cover) to it.
+    Play the selected archive episode, a direct mp3 URL, or the live stream on
+    the given media player, and apply the Tilos metadata (title, show name,
+    cover) to it.
   fields:
     entity_id:
       name: Media player
@@ -13,7 +14,9 @@ play:
           domain: media_player
     media:
       name: Media
-      description: Play the selected archive episode, or the live stream.
+      description: >-
+        Play the selected archive episode, a direct mp3 URL (the `url` field),
+        or the live stream.
       required: false
       default: episode
       selector:
@@ -21,8 +24,20 @@ play:
           options:
             - value: episode
               label: Selected episode
+            - value: url
+              label: Direct mp3 URL
             - value: live
               label: Live stream
+    url:
+      name: URL
+      description: >-
+        Direct mp3 URL to play. Only used when media is set to "url". Any mp3
+        URL is accepted, not only Tilos archive links.
+      required: false
+      example: "https://stream.tilos.hu/archive/example.mp3"
+      selector:
+        text:
+          type: url
     enqueue:
       name: Enqueue
       description: >-

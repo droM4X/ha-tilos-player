@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from datetime import datetime, timezone
 from typing import Any
 
-import aiohttp
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -21,6 +21,7 @@ from . import (
     Show,
     TilosRuntimeData,
     fetch_episodes,
+    fetch_show_info,
     register_episodes,
     resolve_show_image,
 )
@@ -52,8 +53,10 @@ class TilosShowSelect(CoordinatorEntity, SelectEntity):
 
     # The 200+ entry show list is ~17 kB, past the recorder's attribute
     # limit. The card reads it from the live state, so keep it out of the
-    # database.
-    _unrecorded_attributes = frozenset({"shows"})
+    # database. The show description is HTML and can be several kB too.
+    _unrecorded_attributes = frozenset(
+        {"shows", "info_definition", "info_description"}
+    )
 
     def __init__(
         self,
@@ -106,6 +109,14 @@ class TilosShowSelect(CoordinatorEntity, SelectEntity):
             attrs["type"] = show.type
             attrs["id"] = str(show.id)
 
+        # Show-level info for the card's show info button. Only present
+        # once the info fetch for the selected show has completed.
+        info = self._runtime.show_info
+        if info:
+            attrs["info_name"] = info.name
+            attrs["info_definition"] = info.definition
+            attrs["info_description"] = info.description
+
         return attrs
 
     @property
@@ -122,12 +133,31 @@ class TilosShowSelect(CoordinatorEntity, SelectEntity):
             return
 
         self._runtime.selected_show = selected
+        # Drop the previous show's info immediately: the entity state flips
+        # to the new show now, and the card must not show stale info while
+        # the new one is being fetched.
+        self._runtime.show_info = None
         self._runtime.episodes = []
         self._runtime.selected_episode = None
         self.async_write_ha_state()
 
         _LOGGER.info("Show selected: %s (%s)", selected.name, selected.alias)
         await self._episode_select.async_refresh_episodes()
+        # Re-publish so the freshly fetched show info reaches the card.
+        self.async_write_ha_state()
+
+
+async def _fetch_guarded(coro, fallback, label: str, alias: str):
+    """Await a fetch, logging and falling back on any regular error.
+
+    Only `Exception` is caught — a cancellation (CancelledError) still
+    propagates, so unloading the entry is not swallowed here.
+    """
+    try:
+        return await coro
+    except Exception as err:  # noqa: BLE001 - keep the UI responsive
+        _LOGGER.error("Failed to fetch %s for %s: %s", label, alias, err)
+        return fallback
 
 
 class TilosEpisodeSelect(SelectEntity):
@@ -201,26 +231,36 @@ class TilosEpisodeSelect(SelectEntity):
         self.async_write_ha_state()
 
     async def async_refresh_episodes(self) -> None:
-        """Fetch episodes of the selected show (called by the show select)."""
+        """Fetch episodes and show info of the selected show.
+
+        Called by the show select. Both requests go out together so picking
+        a show feels instant; a failure of either one is contained so the
+        UI still gets whatever the other returned.
+        """
         show = self._runtime.selected_show
         if show is None:
             return
 
         session = async_get_clientsession(self._hass)
 
-        try:
-            episodes = await fetch_episodes(
-                session, show.alias, self._runtime.lookback_days
-            )
-        except (aiohttp.ClientError, TimeoutError) as err:
-            _LOGGER.error("Failed to fetch episodes for %s: %s", show.alias, err)
-            episodes = []
-        except Exception as err:  # noqa: BLE001 - keep the UI responsive
-            _LOGGER.exception(
-                "Unexpected error fetching episodes for %s: %s", show.alias, err
-            )
-            episodes = []
+        show_info, episodes = await asyncio.gather(
+            _fetch_guarded(
+                fetch_show_info(session, show.alias),
+                None,
+                "show info",
+                show.alias,
+            ),
+            _fetch_guarded(
+                fetch_episodes(
+                    session, show.alias, self._runtime.lookback_days
+                ),
+                [],
+                "episodes",
+                show.alias,
+            ),
+        )
 
+        self._runtime.show_info = show_info
         self._runtime.episodes = episodes
         self._runtime.selected_episode = None
 

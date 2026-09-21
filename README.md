@@ -9,8 +9,9 @@ A Tilos Rádió archívumából közvetlen lejátszás a Home Assistantban a meg
 
 ## Fícsörök
 - Műsor választás az összes archivált adásból (kedvencek elöl, majd zenei és beszélgetős műsorok csoportban ABC sorrendben) + élő műsor
-- Kedvenc műsorok csillagozása, a műsorlista elejére kerülnek
-- Epizód műsorleírás / tracklista megjelenítése
+- Kedvenc műsorok csillagozása a kártya bal felső sarkából, a műsorlista elejére kerülnek
+- Műsorleírás megjelenítése (műsor infó gomb) és epizód műsorleírás / tracklista megjelenítése
+- Közvetlen mp3 link lejátszása (opcionális)
 - Lejátszó lista támogatása (csak Music Assistant esetén)
 - HACS-ból is telepíthető, egyedi integrációként, így később tud frissülni.
 - Saját Lovelace kártya vizuális (interaktív) szerkesztővel és YAML móddal.
@@ -31,23 +32,19 @@ A Tilos Rádió archívumából közvetlen lejátszás a Home Assistantban a meg
   - Repó megnyitása: `droM4X/ha-tilos-player`
   - Típus: `Integráció`
 - Hozzáadás után HA újraindítása
-- Új integráció hozzáadása, Tilos Radio Player. A lejátszó entitást kell beállítani.
-- A felületen kártya hozzáadása: Tilos Player Card
-- A kártya beállításainál (vizuális szerkesztő vagy YAML) két dolgot kell megadni:
-  - **Integráció típusa**: Home Assistant vagy Music Assistant
-  - **Média lejátszó entitás**: ezen a lejátszón futnak a kártya gombjai
-- A műsorlista induláskor és 12 óránként automatikusan frissül. Műsor választás, lejátszás.
-- Örvendezés a remek muzsikáknak :)
 
 ### Manuálisan
 - Repo klónozása/letöltése
 - A HA könyvtárába a custom_components mappa bemásolása
 - HA újraindítása
-- Új integráció hozzáadása, Tilos Radio Player. A lejátszó entitást kell beállítani
+
+## Bekonfig
+- Új integráció hozzáadása, Tilos Radio Player. A lejátszó entitást kell beállítani.
 - A felületen kártya hozzáadása: Tilos Player Card
-- A kártya beállításainál (vizuális szerkesztő vagy YAML) két dolgot kell megadni:
+- A kártya beállításainál (vizuális szerkesztő vagy YAML) az alábbiakat lehet megadni:
   - **Integráció típusa**: Home Assistant vagy Music Assistant
   - **Média lejátszó entitás**: ezen a lejátszón futnak a kártya gombjai
+  - **Link lejátszó**: közvetlen mp3 lejátszás vagy várólistára adás linkről
 - A műsorlista induláskor és 12 óránként automatikusan frissül. Műsor választás, lejátszás.
 - Örvendezés a remek muzsikáknak :)
 
@@ -55,7 +52,8 @@ A Tilos Rádió archívumából közvetlen lejátszás a Home Assistantban a meg
 ```
 type: custom:tilos-player-card
 media_player: media_player.{entitas}
-integration_type: home_assistant vagy music_assistant  
+integration_type: home_assistant vagy music_assistant
+link_player: true vagy false   # opcionális, alapból false
 ```
 
 ---
