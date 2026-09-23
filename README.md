@@ -49,12 +49,12 @@ A Tilos Rádió archívumából közvetlen lejátszás a Home Assistantban a meg
 - Műsor választás, lejátszás.
 - Örvendezés a remek muzsikáknak :)
 
-### Kártya yaml beállítása
+### Minimális kézi config
 ```
 type: custom:tilos-player-card
-media_player: media_player.{entitas}
-integration_type: home_assistant vagy music_assistant
-link_player: true vagy false   # opcionális, alapból false
+media_player: media_player.lejatszo   # a lejátszásra használt media_player entitás
+integration_type: home_assistant      # integráció típusa (opciók: home_assistant|music_assistant)
+link_player: false                    # link lejátszó megjelenítése (opciók: true|false)
 ```
 
 ---
