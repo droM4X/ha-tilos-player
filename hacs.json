@@ -1,4 +1,5 @@
 {
   "name": "Tilos Rádió Player",
-  "country": "HU"
+  "country": "HU",
+  "render_readme": true
 }
