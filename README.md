@@ -22,6 +22,8 @@ A Tilos Rádió archívumából közvetlen lejátszás a Home Assistantban a meg
 
 ## Felpattintás
 ### HACS-al
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=droM4X&repository=ha-tilos-player&category=integration)
+
 - A HACS legyen feltelepítve
 - Oldalsó sávban: HACS, jobbra fent 3 pötty majd: Egyedi repók
 - A felbukkanó ablakban: 
