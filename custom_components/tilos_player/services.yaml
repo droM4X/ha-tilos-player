@@ -65,7 +65,8 @@ add_favorite:
   fields:
     show_id:
       name: Show ID
-      description: ID of the show, as listed in the show select's "shows" attribute.
+      description: >-
+        ID of the show, as listed in the show select's "shows" attribute.
       required: true
       example: "5480cee86dab254449a7cc36"
       selector:
@@ -77,8 +78,41 @@ remove_favorite:
   fields:
     show_id:
       name: Show ID
-      description: ID of the show, as listed in the show select's "shows" attribute.
+      description: >-
+        ID of the show, as listed in the show select's "shows" attribute.
       required: true
       example: "5480cee86dab254449a7cc36"
+      selector:
+        text:
+
+save_episode:
+  name: Save episode for later
+  description: >-
+    Keep the given archive episode for later, together with all of its data
+    (title, description, show name, cover), so it stays playable after it
+    falls out of the archive list. The saved episodes show up as the first
+    option of the show picker.
+  fields:
+    episode_key:
+      name: Episode key
+      description: >-
+        Key of the episode, as listed in the episode select's "save_key"
+        attribute. Leave empty to use the currently selected episode.
+      required: false
+      example: "tilos-20260717-100000-120000"
+      selector:
+        text:
+
+remove_saved_episode:
+  name: Remove saved episode
+  description: Remove an episode from the saved-for-later list.
+  fields:
+    episode_key:
+      name: Episode key
+      description: >-
+        Key of the episode, as listed in the episode select's "save_key"
+        attribute. Leave empty to use the currently selected episode.
+      required: false
+      example: "tilos-20260717-100000-120000"
       selector:
         text:

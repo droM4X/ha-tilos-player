@@ -12,7 +12,7 @@ import logging
 import re
 import time
 from collections import OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import timedelta
 from typing import Any, Callable
 from pathlib import Path
@@ -59,13 +59,20 @@ from .const import (
     METADATA_PATCH_DELAY,
     METADATA_POLL_INTERVAL,
     METADATA_REWRITE_INTERVAL,
+    SAVED_EPISODES_LABEL,
+    SAVED_EPISODES_MAX_ENTRIES,
+    SAVED_SHOW_ID,
+    SAVED_SHOW_TYPE,
     SERVICE_ADD_FAVORITE,
     SERVICE_PLAY,
     SERVICE_REMOVE_FAVORITE,
+    SERVICE_REMOVE_SAVED_EPISODE,
+    SERVICE_SAVE_EPISODE,
     SHOW_INFO_URL,
     SHOW_TYPE_MUSIC,
     SHOWS_UPDATE_INTERVAL,
     SHOWS_URL,
+    ATTR_EPISODE_KEY,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -85,6 +92,14 @@ class Episode:
     # text.formatted field (falls back to text.content). Every episode
     # has its own, and it may be empty.
     description: str = ""
+
+    # Only filled in on "save for later" episodes: the show it belongs to
+    # and the already-resolved cover. With these two the episode plays
+    # (and shows its metadata) even when the show fell out of the archive
+    # window, so they are stored together with the episode.
+    show_name: str = ""
+    alias: str = ""
+    image_url: str = ""
 
 
 @dataclass
@@ -148,6 +163,15 @@ class TilosRuntimeData:
     # via RestoreEntity) and mutated by the favorite services.
     favorites: set[str] = field(default_factory=set)
     favorites_listeners: set[Callable[[], None]] = field(default_factory=set)
+    # "Save for later" episodes, keyed by their archive file name. Owned
+    # by the saved-episodes sensor (which persists them via RestoreEntity)
+    # and mutated by the save / remove services.
+    saved_episodes: "OrderedDict[str, Episode]" = field(
+        default_factory=OrderedDict
+    )
+    saved_episodes_listeners: set[Callable[[], None]] = field(
+        default_factory=set
+    )
     # Media metadata: local file-name -> metadata index, the media players
     # the user has targeted from the card, and the resolved cover per show.
     media_index: "OrderedDict[str, EpisodeInfo]" = field(
@@ -401,6 +425,197 @@ def register_episodes(
         register_episode(runtime, episode, show_name, image_url)
 
 
+# --- "Save for later" episodes -------------------------------------------
+#
+# The archive list only reaches back a configurable window (4 months by
+# default), but an episode stays playable forever. So the user can keep
+# one with all of its data — title, description, show name, cover, mp3
+# URL — and play it later, without fetching anything from the API.
+
+
+def saved_show() -> Show:
+    """Return the pseudo-show that stands for the saved episodes.
+
+    It is a regular `Show` with a reserved ID, so the show picker can
+    offer it as its first option and the rest of the runtime keeps
+    working unchanged. Its alias is empty: nothing is ever fetched for it.
+    """
+    return Show(
+        id=SAVED_SHOW_ID,
+        name=SAVED_EPISODES_LABEL,
+        alias="",
+        type=SAVED_SHOW_TYPE,
+    )
+
+
+def saved_episode_key(episode: Episode) -> str:
+    """Stable key of an episode: its archive file name, else its time."""
+    key = archive_key(episode.url)
+    if key is not None:
+        return key
+    return f"ts-{episode.timestamp}"
+
+
+def saved_episode_payload(episode: Episode) -> dict[str, Any]:
+    """Serialize a saved episode for the sensor's state attributes."""
+    return {
+        "key": saved_episode_key(episode),
+        "title": episode.title,
+        "show_name": episode.show_name,
+        "alias": episode.alias,
+        "url": episode.url,
+        "m3u_url": episode.m3u_url,
+        "timestamp": episode.timestamp,
+        "description": episode.description,
+        "image_url": episode.image_url,
+    }
+
+
+def episode_from_payload(data: Any) -> Episode | None:
+    """Rebuild an Episode from a stored payload, ignoring broken entries."""
+    if not isinstance(data, dict):
+        return None
+
+    url = data.get("url")
+    if not isinstance(url, str) or not url:
+        return None
+
+    def as_str(name: str) -> str:
+        value = data.get(name)
+        return value if isinstance(value, str) else ""
+
+    try:
+        timestamp = int(data.get("timestamp") or 0)
+    except (TypeError, ValueError):
+        timestamp = 0
+
+    return Episode(
+        title=as_str("title") or "Ismeretlen cím",
+        url=url,
+        timestamp=timestamp,
+        m3u_url=as_str("m3u_url"),
+        description=as_str("description"),
+        show_name=as_str("show_name"),
+        alias=as_str("alias"),
+        image_url=as_str("image_url"),
+    )
+
+
+def sorted_saved_episodes(runtime: TilosRuntimeData) -> list[Episode]:
+    """Saved episodes, newest broadcast first.
+
+    This is both the sort order of the episode picker and the tie-breaker
+    of the storage: saving an already-saved episode replaces it in place.
+    """
+    return sorted(
+        runtime.saved_episodes.values(),
+        key=lambda episode: episode.timestamp,
+        reverse=True,
+    )
+
+
+def is_saved_episode(
+    runtime: TilosRuntimeData, episode: Episode
+) -> bool:
+    """True when this episode is one of the saved ones."""
+    return saved_episode_key(episode) in runtime.saved_episodes
+
+
+def store_saved_episode(
+    runtime: TilosRuntimeData, episode: Episode
+) -> bool:
+    """Add/replace one saved episode; True when the list changed."""
+    key = saved_episode_key(episode)
+    existing = runtime.saved_episodes.get(key)
+    if existing is not None and existing == episode:
+        return False
+
+    runtime.saved_episodes[key] = episode
+    runtime.saved_episodes.move_to_end(key)
+
+    # Keep the list bounded — drop the oldest broadcasts first.
+    while len(runtime.saved_episodes) > SAVED_EPISODES_MAX_ENTRIES:
+        dropped_key, _ = runtime.saved_episodes.popitem(last=False)
+        _LOGGER.debug("Dropped the oldest saved episode: %s", dropped_key)
+
+    register_episode(
+        runtime,
+        episode,
+        episode.show_name or MEDIA_ARTIST_SUFFIX.strip(" /"),
+        episode.image_url or DEFAULT_EPISODE_IMAGE,
+    )
+    return True
+
+
+def remove_saved_episode(runtime: TilosRuntimeData, key: str) -> bool:
+    """Drop one saved episode; True when it was there."""
+    if key not in runtime.saved_episodes:
+        return False
+    runtime.saved_episodes.pop(key)
+    return True
+
+
+def find_episode(
+    runtime: TilosRuntimeData, key: str
+) -> Episode | None:
+    """Find an episode by its saved key in the current and saved lists."""
+    episode = runtime.saved_episodes.get(key)
+    if episode is not None:
+        return episode
+
+    for candidate in (*runtime.episodes, *sorted_saved_episodes(runtime)):
+        if saved_episode_key(candidate) == key:
+            return candidate
+    return None
+
+
+def restore_saved_episodes(
+    runtime: TilosRuntimeData, payload: Any
+) -> None:
+    """Load the stored episodes back into the runtime (sensor restore)."""
+    if not isinstance(payload, list):
+        _LOGGER.warning("Ignoring malformed saved episodes payload")
+        return
+
+    for item in payload:
+        episode = episode_from_payload(item)
+        if episode is None:
+            _LOGGER.debug("Skipping malformed saved episode entry: %.100s", item)
+            continue
+        store_saved_episode(runtime, episode)
+
+    _LOGGER.info("Restored %d saved episodes", len(runtime.saved_episodes))
+
+
+async def async_prepare_saved_episode(
+    hass: HomeAssistant,
+    runtime: TilosRuntimeData,
+    episode: Episode,
+) -> Episode:
+    """Complete an episode with the data needed to replay it later.
+
+    The show name and the resolved cover are baked in here, so playing a
+    saved episode needs neither the API nor the show's own episode list.
+    """
+    show = runtime.selected_show
+
+    show_name = episode.show_name or (show.name if show else "")
+    alias = episode.alias or (show.alias if show else "")
+    image_url = episode.image_url
+
+    if not image_url and alias:
+        image_url = await resolve_show_image(
+            async_get_clientsession(hass), runtime, alias
+        )
+
+    return replace(
+        episode,
+        show_name=show_name,
+        alias=alias,
+        image_url=image_url or DEFAULT_EPISODE_IMAGE,
+    )
+
+
 async def resolve_show_image(
     session: aiohttp.ClientSession,
     runtime: TilosRuntimeData,
@@ -650,6 +865,132 @@ def _async_unregister_favorite_services(hass: HomeAssistant) -> None:
             hass.services.async_remove(DOMAIN, service)
 
 
+def _notify_saved_episodes_changed(runtime: TilosRuntimeData) -> None:
+    """Ask the saved-episodes sensor and the pickers to re-publish.
+
+    The sensor owns the persisted state, the selects own the option lists
+    — the service handlers only mutate the shared store, so everyone goes
+    through its own entity.
+    """
+    for listener in list(runtime.saved_episodes_listeners):
+        listener()
+
+
+# Service schema shared by save_episode / remove_saved_episode. The key is
+# optional: without it the service acts on the currently selected episode.
+SAVED_EPISODE_SERVICE_SCHEMA = vol.Schema(
+    {vol.Optional(ATTR_EPISODE_KEY): cv.string}
+)
+
+
+def _resolve_episode_key(
+    runtime: TilosRuntimeData, call: ServiceCall
+) -> str | None:
+    """Return the episode key of a service call.
+
+    The card passes the key it knows (the episode select's `save_key`
+    attribute); without it we fall back to the current selection, which is
+    what the card always means when it only toggles the info panel.
+    """
+    key = call.data.get(ATTR_EPISODE_KEY)
+    if isinstance(key, str) and key:
+        return key
+
+    episode = runtime.selected_episode
+    if episode is None:
+        return None
+
+    return saved_episode_key(episode)
+
+
+@callback
+def _async_register_saved_episode_services(
+    hass: HomeAssistant, runtime: TilosRuntimeData
+) -> None:
+    """Register the save-for-later services for the loaded entry."""
+
+    async def async_save_episode(call: ServiceCall) -> None:
+        """Keep the selected (or given) episode for later playback."""
+        key = _resolve_episode_key(runtime, call)
+        if key is None:
+            _LOGGER.warning("save_episode called but no episode was given")
+            return
+
+        episode = find_episode(runtime, key)
+        if episode is None:
+            _LOGGER.warning("Unknown episode to save: %s", key)
+            return
+
+        episode = await async_prepare_saved_episode(hass, runtime, episode)
+
+        if not store_saved_episode(runtime, episode):
+            return
+
+        _LOGGER.info(
+            "Saved episode: %s (%s) -> %s",
+            episode.title,
+            episode.show_name,
+            key,
+        )
+        _notify_saved_episodes_changed(runtime)
+
+    async def async_remove_saved_episode(call: ServiceCall) -> None:
+        """Remove an episode from the saved list."""
+        key = _resolve_episode_key(runtime, call)
+        if key is None:
+            _LOGGER.warning(
+                "remove_saved_episode called but no episode was given"
+            )
+            return
+
+        if not remove_saved_episode(runtime, key):
+            return
+
+        _LOGGER.info("Removed saved episode: %s", key)
+
+        # If we were browsing the saved list, that episode just vanished
+        # from it — drop it from the selection too.
+        if runtime.selected_episode is not None and (
+            saved_episode_key(runtime.selected_episode) == key
+        ):
+            runtime.selected_episode = None
+
+        # The last saved episode is gone: leave the (now empty and
+        # no-longer-offered) saved view instead of keeping a selection
+        # that is not in the options any more.
+        if (
+            not runtime.saved_episodes
+            and runtime.selected_show is not None
+            and runtime.selected_show.id == SAVED_SHOW_ID
+        ):
+            runtime.selected_show = None
+            runtime.show_info = None
+            runtime.episodes = []
+
+        _notify_saved_episodes_changed(runtime)
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SAVE_EPISODE,
+        async_save_episode,
+        schema=SAVED_EPISODE_SERVICE_SCHEMA,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_REMOVE_SAVED_EPISODE,
+        async_remove_saved_episode,
+        schema=SAVED_EPISODE_SERVICE_SCHEMA,
+    )
+
+
+@callback
+def _async_unregister_saved_episode_services(hass: HomeAssistant) -> None:
+    """Drop the save-for-later services when the entry is unloaded."""
+    for service in (SERVICE_SAVE_EPISODE, SERVICE_REMOVE_SAVED_EPISODE):
+        if hass.services.has_service(DOMAIN, service):
+            hass.services.async_remove(DOMAIN, service)
+
+
 async def play_on_player(hass: HomeAssistant, entity_id: str, url: str) -> None:
     """Play a URL directly on a media player (Home Assistant path)."""
     await hass.services.async_call(
@@ -701,10 +1042,19 @@ async def play_selected_episode(
         _LOGGER.warning("Play requested but no show is selected")
         return
 
-    image_url = await resolve_show_image(
-        async_get_clientsession(hass), runtime, show.alias
-    )
-    register_episode(runtime, episode, show.name, image_url)
+    # Saved episodes carry their own show name and cover (they may well
+    # be from a show that is no longer in the archive list); for the
+    # regular ones we resolve it from the selected show.
+    show_name = episode.show_name or show.name
+    image_url = episode.image_url
+    if not image_url and show.alias:
+        image_url = await resolve_show_image(
+            async_get_clientsession(hass), runtime, show.alias
+        )
+    if not image_url:
+        image_url = DEFAULT_EPISODE_IMAGE
+
+    register_episode(runtime, episode, show_name, image_url)
 
     # Watch this player from now on: the metadata watcher resolves whatever
     # archive file it reports (direct playback and queue items alike).
@@ -878,6 +1228,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _async_register_favorite_services(hass, runtime)
+    _async_register_saved_episode_services(hass, runtime)
     _async_register_play_service(hass, runtime)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
@@ -889,6 +1240,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
         _async_unregister_favorite_services(hass)
+        _async_unregister_saved_episode_services(hass)
         _async_unregister_play_service(hass)
     return unloaded
 

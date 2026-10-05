@@ -10,7 +10,7 @@ from typing import Any
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -22,10 +22,14 @@ from . import (
     TilosRuntimeData,
     fetch_episodes,
     fetch_show_info,
+    is_saved_episode,
     register_episodes,
     resolve_show_image,
+    saved_episode_key,
+    saved_show,
+    sorted_saved_episodes,
 )
-from .const import DOMAIN
+from .const import DOMAIN, SAVED_EPISODES_LABEL, SAVED_SHOW_ID
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -78,9 +82,19 @@ class TilosShowSelect(CoordinatorEntity, SelectEntity):
 
     @property
     def options(self) -> list[str]:
-        """Available shows, sorted alphabetically (from the coordinator)."""
+        """Available shows, sorted alphabetically (from the coordinator).
+
+        When there is at least one saved episode, a "Mentett epizódok"
+        entry comes first; picking it swaps the episode picker to the
+        saved list instead of a show's archive window.
+        """
         shows = self._runtime.coordinator.data or []
-        return [show.name for show in shows]
+        options = [show.name for show in shows]
+
+        if self._runtime.saved_episodes:
+            options.insert(0, SAVED_EPISODES_LABEL)
+
+        return options
 
     @property
     def current_option(self) -> str | None:
@@ -124,14 +138,58 @@ class TilosShowSelect(CoordinatorEntity, SelectEntity):
         """Available when the coordinator has show data."""
         return bool(self._runtime.coordinator.data)
 
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to saved-episode changes (option list depends on it)."""
+        await super().async_added_to_hass()
+        self._runtime.saved_episodes_listeners.add(
+            self._handle_saved_episodes_changed
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Unsubscribe from saved-episode changes."""
+        self._runtime.saved_episodes_listeners.discard(
+            self._handle_saved_episodes_changed
+        )
+        await super().async_will_remove_from_hass()
+
+    @callback
+    def _handle_saved_episodes_changed(self) -> None:
+        """Re-publish the options when an episode is saved or removed.
+
+        While the saved list is open, the removed episode may be the
+        selected one — drop it so the entity state stays consistent.
+        """
+        if (
+            self._runtime.selected_show is not None
+            and self._runtime.selected_show.id == SAVED_SHOW_ID
+        ):
+            selected = self._runtime.selected_episode
+            if selected is not None and not is_saved_episode(
+                self._runtime, selected
+            ):
+                self._runtime.selected_episode = None
+
+            self._runtime.episodes = sorted_saved_episodes(self._runtime)
+
+        self.async_write_ha_state()
+
     async def async_select_option(self, option: str) -> None:
         """Handle show selection: store it and refresh the episode list."""
+
+        if option == SAVED_EPISODES_LABEL and self._runtime.saved_episodes:
+            await self._select_show(saved_show())
+            return
+
         shows = self._runtime.coordinator.data or []
         selected = next((s for s in shows if s.name == option), None)
         if selected is None:
             _LOGGER.warning("Unknown show selected: %s", option)
             return
 
+        await self._select_show(selected)
+
+    async def _select_show(self, selected: Show) -> None:
+        """Store the picked show and rebuild the episode list around it."""
         self._runtime.selected_show = selected
         # Drop the previous show's info immediately: the entity state flips
         # to the new show now, and the card must not show stale info while
@@ -180,6 +238,10 @@ class TilosEpisodeSelect(SelectEntity):
         """Initialize the episode select."""
         self._hass = hass
         self._runtime = runtime
+        # Pontosan az a felirat, amit a felhasztó
+        # kiválasztott. Így a duplikált (számozott)
+        # címkék is helyesen mappablek az epizódra.
+        self._selected_label: str | None = None
         self._attr_unique_id = f"{entry.entry_id}_episode_select"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
@@ -187,17 +249,81 @@ class TilosEpisodeSelect(SelectEntity):
             manufacturer="Tilos Rádió",
         )
 
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to saved-episode changes (they change the list)."""
+        await super().async_added_to_hass()
+        self._runtime.saved_episodes_listeners.add(
+            self._handle_saved_episodes_changed
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Unsubscribe from saved-episode changes."""
+        self._runtime.saved_episodes_listeners.discard(
+            self._handle_saved_episodes_changed
+        )
+        await super().async_will_remove_from_hass()
+
+    @callback
+    def _handle_saved_episodes_changed(self) -> None:
+        """Re-publish the options when an episode is saved or removed.
+
+        While the saved list is open it is our own option list, so it has
+        to be rebuilt (and a removed selection dropped).
+        """
+        if (
+            self._runtime.selected_show is not None
+            and self._runtime.selected_show.id == SAVED_SHOW_ID
+        ):
+            selected = self._runtime.selected_episode
+            if selected is not None and not is_saved_episode(
+                self._runtime, selected
+            ):
+                self._runtime.selected_episode = None
+                self._selected_label = None
+
+            self._runtime.episodes = sorted_saved_episodes(self._runtime)
+
+        self.async_write_ha_state()
+
     @property
     def options(self) -> list[str]:
-        """Episode labels (date + title), newest first."""
-        return [self._episode_label(ep) for ep in self._runtime.episodes]
+        """Episode labels (date + title), newest first.
+
+        Labels must be unique, otherwise the selection would be ambiguous
+        — the show name can repeat (two saved episodes of the same show,
+        same title), so a counter is appended in that rare case.
+        """
+        labels: list[str] = []
+        seen: dict[str, int] = {}
+
+        for episode in self._runtime.episodes:
+            label = self._episode_label(episode)
+
+            count = seen.get(label, 0) + 1
+            seen[label] = count
+
+            if count > 1:
+                label = f"{label} ({count})"
+
+            labels.append(label)
+
+        return labels
 
     @property
     def current_option(self) -> str | None:
         """Currently selected episode label."""
         if self._runtime.selected_episode is None:
             return None
-        return self._episode_label(self._runtime.selected_episode)
+
+        options = self.options
+        label = self._selected_label
+
+        if label is not None and label in options:
+            return label
+
+        return self._episode_label(
+            self._runtime.selected_episode
+        )
 
     @property
     def available(self) -> bool:
@@ -213,21 +339,47 @@ class TilosEpisodeSelect(SelectEntity):
             "show": show.name if show else None,
             "episode_count": len(self._runtime.episodes),
         }
+        if show is not None and show.id == SAVED_SHOW_ID:
+            attrs["saved_list"] = True
+
         if episode:
             attrs["mp3_url"] = episode.url
             attrs["title"] = episode.title
             attrs["broadcast"] = self._format_ts(episode.timestamp)
+            # What the card's "Mentés későbbre" row toggles: the stable
+            # key of the episode and whether it is saved already.
+            attrs["save_key"] = saved_episode_key(episode)
+            attrs["saved"] = is_saved_episode(self._runtime, episode)
+            if episode.show_name:
+                attrs["episode_show"] = episode.show_name
             if episode.description:
                 attrs["description"] = episode.description
         return attrs
 
     async def async_select_option(self, option: str) -> None:
-        """Handle episode selection: store the matching Episode object."""
-        for ep in self._runtime.episodes:
-            if self._episode_label(ep) == option:
-                self._runtime.selected_episode = ep
-                _LOGGER.info("Episode selected: %s -> %s", ep.title, ep.url)
-                break
+        """Handle episode selection: store the matching Episode object.
+
+        The option strings come from `options` (which disambiguates
+        duplicates), so the match is done by position on that very list.
+        """
+        options = self.options
+
+        try:
+            index = options.index(option)
+        except ValueError:
+            _LOGGER.warning(
+                "Unknown episode selected: %s", option
+            )
+        else:
+            episode = self._runtime.episodes[index]
+            self._runtime.selected_episode = episode
+            self._selected_label = option
+            _LOGGER.info(
+                "Episode selected: %s -> %s",
+                episode.title,
+                episode.url,
+            )
+
         self.async_write_ha_state()
 
     async def async_refresh_episodes(self) -> None:
@@ -236,9 +388,25 @@ class TilosEpisodeSelect(SelectEntity):
         Called by the show select. Both requests go out together so picking
         a show feels instant; a failure of either one is contained so the
         UI still gets whatever the other returned.
+
+        The "Mentett epizódok" pseudo-show fetches nothing: it just lists
+        what was saved earlier.
         """
         show = self._runtime.selected_show
         if show is None:
+            return
+
+        if show.id == SAVED_SHOW_ID:
+            self._runtime.show_info = None
+            self._runtime.episodes = sorted_saved_episodes(self._runtime)
+            self._runtime.selected_episode = None
+            self._selected_label = None
+
+            _LOGGER.info(
+                "Browsing saved episodes: %d entries",
+                len(self._runtime.episodes),
+            )
+            self.async_write_ha_state()
             return
 
         session = async_get_clientsession(self._hass)
@@ -263,6 +431,7 @@ class TilosEpisodeSelect(SelectEntity):
         self._runtime.show_info = show_info
         self._runtime.episodes = episodes
         self._runtime.selected_episode = None
+        self._selected_label = None
 
         # Remember the metadata of the fetched episodes under their mp3
         # file name, so the player metadata can be resolved later — even
@@ -279,17 +448,26 @@ class TilosEpisodeSelect(SelectEntity):
 
     @staticmethod
     def _episode_label(episode: Episode) -> str:
-        """Build the option label: broadcast date + title.
+        """Build the option label: broadcast date + title (+ show name).
 
         Many Tilos titles already start with their broadcast date
         (e.g. '2026.07.17. - Tracklistával') — in that case keep the
         title as-is to avoid a doubled date.
+
+        The show name is only appended for saved episodes: those can come
+        from any show, so it is the only hint of what they are.
         """
         title = episode.title
         if re.match(r"^\d{4}\.\d{2}\.\d{2}\.?", title):
-            return title
-        date_str = TilosEpisodeSelect._format_ts(episode.timestamp)
-        return f"{date_str} — {title}"
+            label = title
+        else:
+            date_str = TilosEpisodeSelect._format_ts(episode.timestamp)
+            label = f"{date_str} — {title}"
+
+        if episode.show_name:
+            label = f"{label} · {episode.show_name}"
+
+        return label
 
     @staticmethod
     def _format_ts(ts_ms: int) -> str:

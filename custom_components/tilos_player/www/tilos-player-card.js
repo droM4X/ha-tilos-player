@@ -16,6 +16,13 @@ const STAR_OUTLINE_PATH =
 const INFO_OUTLINE_PATH =
   "M11,9H13V7H11M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,17H13V11H11V17Z";
 
+/* Könyvjelző ikon: későbbre mentett epizód. */
+const BOOKMARK_OUTLINE_PATH =
+  "M17,3H7A2,2 0 0,0 5,5V21L12,18L19,21V5A2,2 0 0,0 17,3M17,18L12,15.82L7,18V5H17V18Z";
+
+const BOOKMARK_FILLED_PATH =
+  "M17,3H7A2,2 0 0,0 5,5V21L12,18L19,21V5A2,2 0 0,0 17,3Z";
+
 /* Listához adás ikon (Music Assistant mód). */
 const PLAYLIST_ADD_PATH =
   "M3,15H9V13H3V15M3,19H9V17H3V19M3,11H13V9H3V11M3,7H13V5H3V7M17,11V8H15V11H12V13H15V16H17V13H20V11H17Z";
@@ -26,6 +33,16 @@ const CLOSE_PATH =
 
 const FAVORITES_GROUP_LABEL =
   "Kedvencek";
+
+/*
+ * A "Mentett epizódok" belépés a műsor
+ * legördülő első eleme, ha van mentett
+ * epizód (a backend csak így teszi bele).
+ * A nevének egyeznie kell a SAVED_EPISODES_LABEL
+ * Python konstanssal.
+ */
+const SAVED_EPISODES_LABEL =
+  "Mentett epizódok";
 
 /* A típuscsoportok sorrendje a listában. */
 const SHOW_TYPE_GROUPS = [
@@ -65,6 +82,53 @@ const EDITOR_HELPERS = {
  * A query string (pl. token) megengedett a .mp3 után.
  */
 const LINK_URL_RE = /^https?:\/\/.+\.mp3(\?.*)?$/i;
+
+/*
+ * A leírás HTML-jének tisztításához:
+ * megengedett elemek és attribútumok.
+ * A minden ártalmatlan, de nem engedélyezett
+ * elemből csak a tartalom marad meg.
+ */
+const ALLOWED_TAGS = new Set([
+  "A",
+  "B",
+  "BLOCKQUOTE",
+  "BR",
+  "CODE",
+  "DIV",
+  "EM",
+  "H1",
+  "H2",
+  "H3",
+  "H4",
+  "I",
+  "IMG",
+  "LI",
+  "OL",
+  "P",
+  "PRE",
+  "SMALL",
+  "SPAN",
+  "STRONG",
+  "TABLE",
+  "TBODY",
+  "TD",
+  "TH",
+  "THEAD",
+  "TR",
+  "UL",
+]);
+
+const ALLOWED_ATTRIBUTES = {
+  A: ["href", "title"],
+  IMG: ["src", "alt", "title", "width", "height"],
+};
+
+const SAFE_LINK_RE =
+  /^(https?:|mailto:)/i;
+
+const SAFE_IMAGE_RE =
+  /^(https?:|\/|\.\/)/i;
 
 class TilosPlayerCard extends HTMLElement {
   constructor() {
@@ -241,37 +305,34 @@ class TilosPlayerCard extends HTMLElement {
         }
 
         /*
-         * Csillag a kártya bal felső sarkában,
-         * a kártya belső eltartásához igazítva,
-         * hogy a többi gombbal egy vonalban legyen.
+         * A leírás panel első sora: a műsor
+         * kedvencelése, illetve az epizód
+         * későbbre mentése.
          */
-        .favorite-button {
-          position: absolute;
-          top: 16px;
-          left: 16px;
-          z-index: 3;
-
-          flex: 0 0 auto;
-
-          width: 52px;
-          min-height: 52px;
+        .info-action {
+          width: 100%;
+          min-height: 46px;
 
           box-sizing: border-box;
 
           display: flex;
           align-items: center;
-          justify-content: center;
+          gap: 10px;
 
-          padding: 0;
+          margin: 0 0 10px;
+          padding: 9px 12px;
 
           border: 1px solid var(--divider-color, #ddd);
           border-radius: 8px;
 
-          background: var(--card-background-color, #d9d9d9);
-          color: var(--secondary-text-color, #757575);
+          background: var(--card-background-color, #fff);
+          color: var(--primary-text-color, #212121);
 
-          /* A logó fölé kerül, ezért kell egy kis árnyék. */
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+          font: inherit;
+          font-size: 14px;
+          font-weight: 500;
+
+          text-align: left;
 
           cursor: pointer;
 
@@ -281,28 +342,31 @@ class TilosPlayerCard extends HTMLElement {
             border-color 0.15s ease;
         }
 
-        .favorite-button:hover:not(:disabled) {
-          background: var(--secondary-background-color, #d9d9d9);
+        .info-action:hover:not(:disabled) {
+          background: var(--secondary-background-color, #f5f5f5);
         }
 
-        .favorite-button:focus-visible {
+        .info-action:focus-visible {
           outline: 2px solid var(--primary-color);
           outline-offset: 1px;
         }
 
-        .favorite-button:disabled {
+        .info-action:disabled {
           opacity: 0.5;
           cursor: default;
         }
 
-        .favorite-button.active {
+        /* Aktív állapot: már kedvenc / már mentett. */
+        .info-action.active {
           color: var(--warning-color, #ffa726);
           border-color: var(--warning-color, #ffa726);
         }
 
-        .favorite-button svg {
-          width: 26px;
-          height: 26px;
+        .info-action svg {
+          width: 22px;
+          height: 22px;
+
+          flex: 0 0 22px;
 
           fill: currentColor;
         }
@@ -927,18 +991,6 @@ class TilosPlayerCard extends HTMLElement {
       </style>
 
       <ha-card class="card">
-        <button
-          class="favorite-button"
-          type="button"
-          disabled
-          aria-pressed="false"
-          title="Hozzáadás a kedvencekhez"
-        >
-          <svg viewBox="0 0 24 24">
-            <path d="${STAR_OUTLINE_PATH}"/>
-          </svg>
-        </button>
-
         <img class="logo" alt="Tilos Rádió">
 
         <div class="selectors">
@@ -1140,21 +1192,6 @@ class TilosPlayerCard extends HTMLElement {
         );
       });
 
-    const favoriteButton =
-      this.shadowRoot.querySelector(
-        ".favorite-button"
-      );
-
-    if (favoriteButton) {
-      favoriteButton.addEventListener(
-        "click",
-        (event) => {
-          event.stopPropagation();
-          this._toggleFavorite();
-        }
-      );
-    }
-
     this.shadowRoot
       .querySelectorAll(".info-button")
       .forEach((button) => {
@@ -1168,6 +1205,50 @@ class TilosPlayerCard extends HTMLElement {
           }
         );
       });
+
+    /*
+     * A leírás panel első sorának gombjai
+     * (kedvenc műsor / epizód mentése).
+     * A panel tartalma újraíródik, ezért
+     * a kattintás a panelre van kötve.
+     */
+    const descriptionPanel =
+      this.shadowRoot.querySelector(
+        ".description-panel"
+      );
+
+    if (descriptionPanel) {
+      descriptionPanel.addEventListener(
+        "click",
+        (event) => {
+          const action =
+            event.target.closest(
+              ".info-action"
+            );
+
+          if (!action || action.disabled) {
+            return;
+          }
+
+          event.stopPropagation();
+
+          if (
+            action.dataset.action === "favorite"
+          ) {
+            this._toggleFavorite();
+
+            return;
+          }
+
+          if (
+            action.dataset.action ===
+            "save-episode"
+          ) {
+            this._toggleSaveEpisode();
+          }
+        }
+      );
+    }
 
     const linkInput =
       this.shadowRoot.querySelector(
@@ -1289,10 +1370,6 @@ class TilosPlayerCard extends HTMLElement {
     }
 
     this._updateShowDropdown(
-      showState
-    );
-
-    this._updateFavoriteButton(
       showState
     );
 
@@ -1598,51 +1675,19 @@ class TilosPlayerCard extends HTMLElement {
     return null;
   }
 
-  _updateFavoriteButton(showState) {
-    const button =
-      this.shadowRoot.querySelector(
-        ".favorite-button"
-      );
-
-    if (!button) {
-      return;
-    }
-
+  /*
+   * A kiválasztott műsor kedvenc-e.
+   * (A kedvenc gomb a műsor info panel
+   * első sora, ott frissül a felirata.)
+   */
+  _isFavoriteShow(showState) {
     const showId =
       this._selectedShowId(showState);
 
-    const favorite =
+    return (
       showId !== null &&
-      this._favoriteIds().has(showId);
-
-    button.disabled =
-      showId === null;
-
-    button.classList.toggle(
-      "active",
-      favorite
+      this._favoriteIds().has(showId)
     );
-
-    button.setAttribute(
-      "aria-pressed",
-      favorite ? "true" : "false"
-    );
-
-    button.title = favorite
-      ? "Eltávolítás a kedvencek közül"
-      : "Hozzáadás a kedvencekhez";
-
-    const path =
-      button.querySelector("path");
-
-    if (path) {
-      path.setAttribute(
-        "d",
-        favorite
-          ? STAR_FILLED_PATH
-          : STAR_OUTLINE_PATH
-      );
-    }
   }
 
   _toggleFavorite() {
@@ -1730,27 +1775,53 @@ class TilosPlayerCard extends HTMLElement {
       : "";
   }
 
-  /*
-   * A kiválasztott epizód HTML
-   * műsorleírása / tracklistája.
+/*
+   * A kiválasztott epizód adatai
+   * (mentési kulcs, mentett-e, leírás)
+   * az epizód select attribútumaiból.
+   *
+   * Csak akkor adjuk vissza, ha az entity
+   * state tényleg az általunk kiválasztott
+   * epizód, különben a váltás utáni rövid
+   * átmeneti időben a régi adatot kapnánk.
    */
-  _episodeDescription(episodeState) {
+  _selectedEpisodeInfo(episodeState) {
     if (
       this._selectedEpisode === null ||
       !episodeState ||
       String(episodeState.state) !==
         String(this._selectedEpisode)
     ) {
-      return "";
+      return null;
     }
 
-    const description =
-      episodeState.attributes
-        ?.description;
+    const attrs =
+      episodeState.attributes || {};
 
-    return typeof description === "string"
-      ? description
-      : "";
+    const asText = (value) =>
+      typeof value === "string"
+        ? value
+        : "";
+
+    /*
+     * A mentési kulcs a backend által adott
+     * stabil azonosító (archív fájlnév); enélkül
+     * nincs mit menteni / eltávolítani.
+     */
+    const key = asText(attrs.save_key);
+
+    if (!key) {
+      return null;
+    }
+
+    return {
+      key,
+      saved: attrs.saved === true,
+      title: asText(attrs.title),
+      showName: asText(attrs.episode_show),
+      broadcast: asText(attrs.broadcast),
+      description: asText(attrs.description),
+    };
   }
 
   /*
@@ -1798,6 +1869,125 @@ class TilosPlayerCard extends HTMLElement {
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
+  }
+
+  /*
+   * A leírás HTML-jét nem bízható inputként
+   * kezeljük: csak egy engedélyezett lista
+   * szerinti része marad meg, minden
+   * attribútum kivéve a linkek/képek biztonságos
+   * részeit törlődik. Így a panel tartalma
+   * innerHTML nélkül épül meg, de a formázás
+   * (tracklista, linkek, borítók) megmarad.
+   */
+  _sanitizeDescription(html) {
+    const parsed =
+      new DOMParser().parseFromString(
+        `<body>${html}</body>`,
+        "text/html"
+      );
+
+    this._cleanNode(parsed.body);
+
+    /*
+     * Csak a parse-olt dokumentum tartalma
+     * kell (a body elem maga nem).
+     */
+    const fragment =
+      document.createDocumentFragment();
+
+    while (parsed.body.firstChild) {
+      fragment.appendChild(
+        parsed.body.firstChild
+      );
+    }
+
+    return fragment;
+  }
+
+  _cleanNode(node) {
+    Array.from(node.childNodes).forEach(
+      (child) => {
+        if (child.nodeType === 3) {
+          /* Szövegcsomópont: rendben. */
+          return;
+        }
+
+        if (child.nodeType !== 1) {
+          /* Komment, CDATA: nem kell. */
+          child.remove();
+
+          return;
+        }
+
+        const tag = child.tagName.toUpperCase();
+
+        /*
+         * Veszélyes elemek (script, iframe,
+         * stb.) a tartalmukkal együtt
+         * eltűnnek.
+         */
+        if (
+          ALLOWED_TAGS.has(tag)
+        ) {
+          this._cleanAttributes(
+            child,
+            tag
+          );
+
+          this._cleanNode(child);
+
+          return;
+        }
+
+        /*
+         * Engedélyezetlen, de ártalmatlan
+         * elem: a gyerekeit megtartjuk,
+         * maga a tag eltűnik.
+         */
+        const parent = child.parentNode;
+
+        while (child.firstChild) {
+          parent.insertBefore(
+            child.firstChild,
+            child
+          );
+        }
+
+        parent.removeChild(child);
+      }
+    );
+  }
+
+  _cleanAttributes(node, tag) {
+    const allowed =
+      ALLOWED_ATTRIBUTES[tag] || [];
+
+    Array.from(node.attributes).forEach(
+      (attr) => {
+        if (!allowed.includes(attr.name)) {
+          node.removeAttribute(attr.name);
+
+          return;
+        }
+
+        /*
+         * Csak a biztonságos sémák maradhatnak:
+         * javascript: URL-re nem lehet
+         * hagyatkozni.
+         */
+        const value = attr.value.trim();
+
+        if (
+          (attr.name === "href" &&
+            !SAFE_LINK_RE.test(value)) ||
+          (attr.name === "src" &&
+            !SAFE_IMAGE_RE.test(value))
+        ) {
+          node.removeAttribute(attr.name);
+        }
+      }
+    );
   }
 
   /*
@@ -2021,15 +2211,35 @@ class TilosPlayerCard extends HTMLElement {
       return;
     }
 
+    /*
+     * A mentett epizódok nézete nem egy
+     * műsorhoz tartozik, így nincs
+     * műsor infója (és kedvencelhető sem).
+     */
+    const savedMode =
+      this._selectedShow ===
+      SAVED_EPISODES_LABEL;
+
+    const episodeInfo =
+      this._selectedEpisodeInfo(episodeState);
+
+    const favorite =
+      this._isFavoriteShow(showState);
+
+    /*
+     * A render kulcsa: minden, ami hatással
+     * van a panel tartalmára (a kedvenc és a
+     * mentett állapot is, hogy azonnal
+     * látszon a gomb felirata).
+     */
     const html = {
-      show: this._buildShowInfoHtml(showState),
-      episode:
-        this._episodeDescription(episodeState),
+      show: this._buildShowInfoHtml(showState, favorite),
+      episode: this._buildEpisodeInfoHtml(episodeInfo),
     };
 
     const available = {
-      show: html.show.length > 0,
-      episode: html.episode.length > 0,
+      show: !savedMode && html.show !== "",
+      episode: episodeInfo !== null,
     };
 
     /*
@@ -2068,7 +2278,7 @@ class TilosPlayerCard extends HTMLElement {
       button.title = !hasContent
         ? kind === "show"
           ? "Nincs műsorleírás"
-          : "Nincs epizódleírás"
+          : "Nincs kiválasztott epizód"
         : open
           ? "Leírás elrejtése"
           : "Leírás megjelenítése";
@@ -2100,49 +2310,260 @@ class TilosPlayerCard extends HTMLElement {
     ) {
       this._renderedInfo = renderKey;
 
-      content.innerHTML = activeHtml;
+      content.replaceChildren();
+
+      if (this._openInfo === "show") {
+        this._renderShowInfo(
+          content,
+          showState,
+          favorite
+        );
+      } else if (this._openInfo === "episode") {
+        this._renderEpisodeInfo(
+          content,
+          episodeInfo
+        );
+      }
     }
 
     panel.hidden = this._openInfo === null;
   }
 
   /*
-   * A műsor info HTML-je: nagyobb cím,
-   * majd a definition, végül a description
-   * (ez HTML lehet, ezért nem escape-eljük).
+   * A műsor info panel tartalma: az első
+   * sorban a kedvencelés gomb, majd a
+   * cím, a definition és a leírás.
    */
-  _buildShowInfoHtml(showState) {
+  _renderShowInfo(
+    content,
+    showState,
+    favorite
+  ) {
+    content.appendChild(
+      this._createActionButton(
+        "favorite",
+        favorite
+          ? STAR_FILLED_PATH
+          : STAR_OUTLINE_PATH,
+        favorite
+          ? "Eltávolítás a kedvencek közül"
+          : "Kedvenc műsor",
+        !favorite
+          ? "Hozzáadás a kedvencekhez"
+          : "Eltávolítás a kedvencek közül",
+        favorite,
+        this._selectedShowId(showState) === null
+      )
+    );
+
+    const info = this._showInfo(showState);
+
+    if (!info) {
+      return;
+    }
+
+    if (info.name) {
+      content.appendChild(
+        this._createInfoLine(
+          "show-info-title",
+          info.name
+        )
+      );
+    }
+
+    if (info.definition) {
+      content.appendChild(
+        this._createInfoLine(
+          "show-info-definition",
+          info.definition
+        )
+      );
+    }
+
+    if (info.description) {
+      content.appendChild(
+        this._sanitizeDescription(
+          info.description
+        )
+      );
+    }
+  }
+
+  /*
+   * Az epizód info panel tartalma: az első
+   * sorban a mentés / eltávolítás gomb,
+   * majd a műsor neve és a leírás.
+   */
+  _renderEpisodeInfo(content, info) {
+    if (!info) {
+      return;
+    }
+
+    content.appendChild(
+      this._createActionButton(
+        "save-episode",
+        info.saved
+          ? BOOKMARK_FILLED_PATH
+          : BOOKMARK_OUTLINE_PATH,
+        info.saved
+          ? "Eltávolítás a mentettek közül"
+          : "Mentés későbbre",
+        info.saved
+          ? "Eltávolítás a mentett epizódok közül"
+          : "Mentés későbbre",
+        info.saved
+      )
+    );
+
+    if (info.showName) {
+      const parts = [
+        `Műsor: ${info.showName}`,
+      ];
+
+      if (info.broadcast) {
+        parts.push(info.broadcast);
+      }
+
+      content.appendChild(
+        this._createInfoLine(
+          "show-info-definition",
+          parts.join(" · ")
+        )
+      );
+    }
+
+    if (info.description) {
+      content.appendChild(
+        this._sanitizeDescription(
+          info.description
+        )
+      );
+    }
+  }
+
+  /*
+   * Az első sor gombja (kedvenc / mentés).
+   */
+  _createActionButton(
+    action,
+    iconPath,
+    label,
+    title,
+    active,
+    disabled
+  ) {
+    const button =
+      document.createElement("button");
+
+    button.type = "button";
+    button.className = "info-action";
+
+    if (active) {
+      button.classList.add("active");
+    }
+
+    if (disabled) {
+      button.disabled = true;
+    }
+
+    button.dataset.action = action;
+    button.title = title;
+    button.setAttribute(
+      "aria-pressed",
+      active ? "true" : "false"
+    );
+
+    button.appendChild(
+      this._createIcon(iconPath)
+    );
+
+    const text =
+      document.createElement("span");
+
+    text.textContent = label;
+
+    button.appendChild(text);
+
+    return button;
+  }
+
+  _createInfoLine(className, text) {
+    const line =
+      document.createElement("div");
+
+    line.className = className;
+    line.textContent = text;
+
+    return line;
+  }
+
+  /*
+   * A műsor info szöveges része
+   * (a gomb felirata nem kell ide).
+   *
+   * A show pickerben nincs, csak a render
+   * kulcsa miatt kell: így azonos marad a
+   * kulcs akkor is, ha csak a gomb
+   * felirata változik.
+   */
+  _buildShowInfoHtml(showState, favorite) {
     const info = this._showInfo(showState);
 
     if (!info) {
       return "";
     }
 
-    const parts = [];
+    return [
+      favorite ? "1" : "0",
+      info.name || "",
+      info.definition || "",
+      info.description || "",
+    ].join("|");
+  }
 
-    if (info.name) {
-      parts.push(
-        `<div class="show-info-title">${this._escapeHtml(
-          info.name
-        )}</div>`
-      );
+  /*
+   * Ugyanaz, mint a show-nál: a mentett
+   * állapotot is beleteszük a kulcsba.
+   */
+  _buildEpisodeInfoHtml(info) {
+    if (!info) {
+      return "";
     }
 
-    if (info.definition) {
-      parts.push(
-        `<div class="show-info-definition">${this._escapeHtml(
-          info.definition
-        )}</div>`
-      );
+    return [
+      info.saved ? "1" : "0",
+      info.showName || "",
+      info.broadcast || "",
+      info.description || "",
+    ].join("|");
+  }
+
+  /*
+   * Epizód mentése / eltávolítása a
+   * mentettek közül.
+   */
+  _toggleSaveEpisode() {
+    const episodeState =
+      this._hass.states[
+        this._config.episode_entity
+      ];
+
+    const info =
+      this._selectedEpisodeInfo(episodeState);
+
+    if (!info) {
+      return;
     }
 
-    if (info.description) {
-      parts.push(
-        `<div class="show-info-description">${info.description}</div>`
-      );
-    }
-
-    return parts.join("");
+    this._hass.callService(
+      "tilos_player",
+      info.saved
+        ? "remove_saved_episode"
+        : "save_episode",
+      {
+        episode_key: info.key,
+      }
+    );
   }
 
   _toggleInfo(kind) {
@@ -2192,6 +2613,26 @@ class TilosPlayerCard extends HTMLElement {
 
     const options =
       stateObj?.attributes?.options || [];
+
+    /*
+     * A mentett epizódok nézetében a
+     * felirat is mást jelent.
+     */
+    const caption =
+      dropdown.querySelector(
+        ".dropdown-caption"
+      );
+
+    if (caption) {
+      const captionText =
+        stateObj?.attributes?.saved_list === true
+          ? "Mentett epizód"
+          : "Epizód";
+
+      if (caption.textContent !== captionText) {
+        caption.textContent = captionText;
+      }
+    }
 
     /*
      * Műsor nélkül az epizód select
@@ -2734,6 +3175,7 @@ class TilosPlayerCard extends HTMLElement {
               String(option) ===
                 String(currentValue),
             favorite: null,
+            bookmark: false,
           }
         )
       );
@@ -2777,6 +3219,32 @@ class TilosPlayerCard extends HTMLElement {
       currentValue === null
         ? null
         : String(currentValue);
+
+    /*
+     * A mentett epizódok belépés a lista
+     * elején, könyvjelző ikonnal. Csak akkor
+     * jelenik meg, ha a backend tényleg
+     * betette az opciók közé (van mentett
+     * epizód), és nem része a shows
+     * attribútnak, mert nem igazi műsor.
+     */
+    if (
+      options.includes(SAVED_EPISODES_LABEL)
+    ) {
+      menu.appendChild(
+        this._createOption(
+          SAVED_EPISODES_LABEL,
+          SAVED_EPISODES_LABEL,
+          {
+            selected:
+              current ===
+              SAVED_EPISODES_LABEL,
+            favorite: null,
+            bookmark: true,
+          }
+        )
+      );
+    }
 
     const byName = (items) =>
       [...items].sort((a, b) =>
@@ -2841,6 +3309,7 @@ class TilosPlayerCard extends HTMLElement {
                 favorites.has(
                   String(show.id)
                 ),
+              bookmark: false,
             }
           )
         );
@@ -2849,18 +3318,19 @@ class TilosPlayerCard extends HTMLElement {
   }
 
   /*
-   * Egy legördülő opció.
-   *
    * A `favorite` értéke:
    *   null  -> nincs csillag oszlop (epizód)
    *   false -> üres csillag hely, hogy a nevek
    *            egy vonalban maradjanak
    *   true  -> kitöltött csillag
+   *
+   * A `bookmark` könyvjelző ikonnal jelöli a
+   * mentett epizódok belépését.
    */
   _createOption(
     value,
     label,
-    { selected, favorite }
+    { selected, favorite, bookmark }
   ) {
     const optionButton =
       document.createElement("button");
@@ -2873,19 +3343,24 @@ class TilosPlayerCard extends HTMLElement {
     optionButton.dataset.value =
       String(value);
 
-    if (favorite !== null) {
+    if (favorite !== null || bookmark) {
       const star =
         document.createElement("span");
 
       star.className =
         "dropdown-option-star";
 
-      if (favorite) {
-        star.innerHTML = `
-          <svg viewBox="0 0 24 24">
-            <path d="${STAR_FILLED_PATH}"/>
-          </svg>
-        `;
+      const path =
+        bookmark
+          ? BOOKMARK_FILLED_PATH
+          : favorite
+            ? STAR_FILLED_PATH
+            : null;
+
+      if (path) {
+        star.appendChild(
+          this._createIcon(path)
+        );
       }
 
       optionButton.appendChild(star);
@@ -2908,6 +3383,35 @@ class TilosPlayerCard extends HTMLElement {
     }
 
     return optionButton;
+  }
+
+  /*
+   * Egy 24x24-es mdi ikon (svg + path)
+   * DOM-ból, string-bevitel nélkül.
+   */
+  _createIcon(pathData) {
+    const svg =
+      document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "svg"
+      );
+
+    svg.setAttribute(
+      "viewBox",
+      "0 0 24 24"
+    );
+
+    const path =
+      document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "path"
+      );
+
+    path.setAttribute("d", pathData);
+
+    svg.appendChild(path);
+
+    return svg;
   }
 
   _repositionDropdown() {

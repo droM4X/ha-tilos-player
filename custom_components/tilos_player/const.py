@@ -79,6 +79,22 @@ SERVICE_ADD_FAVORITE = "add_favorite"
 SERVICE_REMOVE_FAVORITE = "remove_favorite"
 ATTR_SHOW_ID = "show_id"
 
+# "Save for later" episodes — the archive list only reaches back a few
+# months, so the user can keep an episode with all of its data (title,
+# description, show name, cover) and play it later. They are stored by
+# the saved-episodes sensor (RestoreEntity) and toggled through these
+# services. When there is at least one, the show picker gets this entry
+# as its first option and the episode picker then lists only these.
+SAVED_EPISODES_LABEL = "Mentett epizódok"
+SAVED_SHOW_ID = "tilos_saved_episodes"
+SAVED_SHOW_TYPE = "SAVED"
+SERVICE_SAVE_EPISODE = "save_episode"
+SERVICE_REMOVE_SAVED_EPISODE = "remove_saved_episode"
+ATTR_EPISODE_KEY = "episode_key"
+# Upper bound for the saved episodes, so the sensor attributes and the
+# episode picker can't grow without limit.
+SAVED_EPISODES_MAX_ENTRIES = 200
+
 # Play service — the card calls this with the media player entity the user
 # picked in the card settings, so the buttons act on that player instead of
 # the integration-configured one. The episode metadata is applied too.

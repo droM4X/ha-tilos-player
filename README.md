@@ -9,7 +9,8 @@ A Tilos Rádió archívumából közvetlen lejátszás a Home Assistantban a meg
 
 ## Fícsörök
 - Műsor választás az összes archivált adásból (kedvencek elöl, majd zenei és beszélgetős műsorok csoportban ABC sorrendben) + élő műsor
-- Kedvenc műsorok csillagozása a kártya bal felső sarkából, a műsorlista elejére kerülnek
+- Kedvenc műsorok csillagozása a műsor info gomb alatt, a műsorlista elejére kerülnek
+- Epizód mentése későbbre, külön listából választhatóan
 - Műsorleírás megjelenítése (műsor infó gomb) és epizód műsorleírás / tracklista megjelenítése
 - Közvetlen mp3 link lejátszása (opcionális)
 - Lejátszó lista támogatása (csak Music Assistant esetén)
@@ -46,6 +47,14 @@ A Tilos Rádió archívumából közvetlen lejátszás a Home Assistantban a meg
 - A műsorlista induláskor és 12 óránként automatikusan frissül.
 - Műsor választás, lejátszás.
 - Örvendezés a remek muzsikáknak :)
+
+### Epizód mentése későbbre
+Az archív epizódlista csak a beállított időablakban (alapból 4 hónap) lévő epizódokat mutatja, de a lejátszható mp3-k nem tűnnek el. Az info gomb megnyomásakor a lenyíló rész első sora egy gomb:
+
+- **Mentés későbbre** – elmenti az epizódot minden adatával együtt (cím, leírás/tracklista, műsor neve, borító, mp3 link). Mentés után a sor felirata **Eltávolítás a mentettek közül** lesz, amivel vissza is lehet venni.
+- Amíg van mentett epizód, a **Műsor** legördülő legelső eleme a **Mentett epizódok** (könyvjelző ikonnal). Kiválasztásakor az **Epizód** legördülő csak a mentett epizódokat listázza — a műsor nevével együtt, a legfrissebb elöl —, és onnan a szokásos Lejátszás / Sorba gombokkal indítható.
+
+A mentett lista a `sensor.tilos_radio_saved_episodes` entitásban van (állapota a darabszám), a mentett epizódok adatai pedig fájlban, így újraindítás után is megmaradnak. Automatizáláshoz a `tilos_player.save_episode` / `tilos_player.remove_saved_episode` szolgáltatások használhatók (az epizód select `save_key` attribútumában lévő kulccsal, vagy üresen a kiválasztott epizódra).
 
 ### Minimális kézi config
 ```
