@@ -38,6 +38,17 @@ play:
       selector:
         text:
           type: url
+    resume:
+      name: Resume
+      description: >-
+        Compare with "Előről": when true, playback starts from the stored
+        position of the selected episode (ignored for media: url/live and
+        for queued items). Without it the episode starts from the beginning
+        and the stored position is dropped.
+      required: false
+      default: false
+      selector:
+        boolean:
     enqueue:
       name: Enqueue
       description: >-
