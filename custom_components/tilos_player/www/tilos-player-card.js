@@ -61,6 +61,7 @@ const EDITOR_LABELS = {
   integration_type: "Integráció típusa",
   media_player: "Média lejátszó entitás",
   link_player: "Link lejátszó",
+  show_cover: "Borító megjelenítése",
 };
 
 const EDITOR_HELPERS = {
@@ -75,6 +76,10 @@ const EDITOR_HELPERS = {
     "Bekapcsolva az epizódválasztó alatt megjelenik egy mező, ahova közvetlen " +
     "mp3 linket lehet beilleszteni. Lejátszáskor ez elsőbbséget élvez a " +
     "kiválasztott epizóddal szemben.",
+  show_cover:
+    "Bekapcsolva a kártya tetején a most szóló adás borítója látszik a logó " +
+    "helyett, alatta a műsor neve és az epizód címe. Lejátszás nélkül a " +
+    "logó marad.",
 };
 
 /*
@@ -160,6 +165,8 @@ class TilosPlayerCard extends HTMLElement {
     this._openInfo = null;
     /* Az utoljára kirakott panel-tartalom (elkerüli az újraírást). */
     this._renderedInfo = null;
+    /* Az utoljára kirakott borító-fejléc szövege. */
+    this._renderedCover = null;
 
     this._documentPointerDown = null;
     this._boundReposition = null;
@@ -176,6 +183,7 @@ class TilosPlayerCard extends HTMLElement {
       live_entity: "button.tilos_radio_live",
       media_player: "",
       link_player: false,
+      show_cover: false,
       logo: "/api/brands/integration/tilos_player/logo.png",
       ...config,
     };
@@ -278,6 +286,49 @@ class TilosPlayerCard extends HTMLElement {
           height: auto;
           margin-bottom: 16px;
           border-radius: 8px;
+        }
+
+        /*
+         * Borító fejléc a logó helyett.
+         * A [hidden] szabály kell, mert a képek
+         * display:blockkal vannak, és a [hidden]
+         * mellett nem érvényesül.
+         */
+        .cover {
+          margin-bottom: 16px;
+        }
+
+        .cover[hidden],
+        .logo[hidden],
+        .cover-image[hidden] {
+          display: none;
+        }
+
+        .cover-image {
+          display: block;
+          width: 100%;
+          height: auto;
+          max-height: 220px;
+          object-fit: cover;
+          border-radius: 8px;
+        }
+
+        /*
+         * A fejléc szövege a fekete kártyaháton ül,
+         * ezért a szöveg maga fehér. Maximum két sor.
+         */
+        .cover-text {
+          margin-top: 10px;
+
+          color: #fff;
+          font-size: 19px;
+          font-weight: 600;
+          line-height: 1.3;
+
+          display: -webkit-box;
+          -webkit-box-orient: vertical;
+          -webkit-line-clamp: 2;
+          overflow: hidden;
         }
 
         .selectors {
@@ -991,6 +1042,11 @@ class TilosPlayerCard extends HTMLElement {
       </style>
 
       <ha-card class="card">
+        <div class="cover" hidden>
+          <img class="cover-image" alt="">
+          <div class="cover-text"></div>
+        </div>
+
         <img class="logo" alt="Tilos Rádió">
 
         <div class="selectors">
@@ -1448,6 +1504,135 @@ class TilosPlayerCard extends HTMLElement {
 
     if (this._openDropdown) {
       this._repositionDropdown();
+    }
+
+    this._updateCover();
+  }
+
+  /*
+   * A most szóló adás fejlécadatai
+   * (borító, szöveg) a céllejátszó
+   * állapotából.
+   *
+   * Csak akkor adjuk vissza, ha a lejátszó
+   * állapota szólásnak számít (playing, paused,
+   * buffering), és az állapot a backend által
+   * jelölt archív epizódot mutatja.
+   *
+   * A szöveg verbatim a backend által írt
+   * tilos_display; csak ha az nincs meg (pl.
+   * indítás után), marad a media_title. Ha az is
+   * üres, nincs mit kirakni, és a logó marad.
+   */
+  _playingInfo() {
+    if (!this._hass) {
+      return null;
+    }
+
+    const target =
+      this._targetPlayer();
+
+    if (!target) {
+      return null;
+    }
+
+    const state =
+      this._hass.states[target];
+
+    if (!state) {
+      return null;
+    }
+
+    if (
+      state.state !== "playing" &&
+      state.state !== "paused" &&
+      state.state !== "buffering"
+    ) {
+      return null;
+    }
+
+    const attrs =
+      state.attributes || {};
+
+    const asText = (value) =>
+      typeof value === "string"
+        ? value
+        : "";
+
+    if (!asText(attrs.tilos_key)) {
+      return null;
+    }
+
+    const text =
+      asText(attrs.tilos_display) ||
+      asText(attrs.media_title);
+
+    if (!text) {
+      return null;
+    }
+
+    return {
+      image: asText(attrs.entity_picture),
+      text,
+    };
+  }
+
+  /*
+   * Logó vagy borító fejléc.
+   *
+   * A borító csak a show_cover bekapcsolása
+   * mellett látszik; a logó végig a DOM-ban
+   * marad, csak át van rejtve.
+   */
+  _updateCover() {
+    const cover =
+      this.shadowRoot.querySelector(".cover");
+
+    const logo =
+      this.shadowRoot.querySelector(".logo");
+
+    if (!cover || !logo) {
+      return;
+    }
+
+    const info = this._config.show_cover
+      ? this._playingInfo()
+      : null;
+
+    logo.hidden = Boolean(info);
+    cover.hidden = !info;
+
+    if (!info) {
+      return;
+    }
+
+    const image =
+      cover.querySelector(".cover-image");
+
+    const text =
+      cover.querySelector(".cover-text");
+
+    /*
+     * Borító nélkül csak a szöveg marad, a kép
+     * ilyenkor rejtve van. Relatív útvonal a
+     * hassUrl-on megy, mint a logó.
+     */
+    if (image) {
+      const src = info.image.startsWith("/")
+        ? this._hass.hassUrl(info.image)
+        : info.image;
+
+      image.hidden = !info.image;
+
+      if (image.getAttribute("src") !== src) {
+        image.setAttribute("src", src);
+      }
+    }
+
+    /* API-ból jövő szöveg, csak változáskor írjuk. */
+    if (text && this._renderedCover !== info.text) {
+      text.textContent = info.text;
+      this._renderedCover = info.text;
     }
   }
 
@@ -3726,6 +3911,12 @@ class TilosPlayerCardEditor extends HTMLElement {
       },
       {
         name: "link_player",
+        selector: {
+          boolean: {},
+        },
+      },
+      {
+        name: "show_cover",
         selector: {
           boolean: {},
         },
