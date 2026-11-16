@@ -921,7 +921,10 @@ class TilosPlayerCard extends HTMLElement {
         }
 
         .action-button {
-          min-height: 76px;
+          position: relative;
+          overflow: hidden;
+
+          min-height: 70px;
 
           display: flex;
           align-items: center;
@@ -975,11 +978,60 @@ class TilosPlayerCard extends HTMLElement {
           color: var(--primary-text-color, #212121);
         }
 
-        .icon {
-          width: 32px;
-          height: 32px;
+        /*
+         * A gomb felirata alapból rejtett: a gomb
+         * ikon-központú. Egér rávitele, billentyűs
+         * fókusz vagy érintés alatt a gomb teljes
+         * területét kitöltő rétegen jelenik meg.
+         */
+        .action-button .label {
+          position: absolute;
+          inset: 0;
 
-          flex: 0 0 32px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+
+          padding: 4px 6px;
+
+          border-radius: inherit;
+
+          background: var(--card-background-color, #fff);
+          color: inherit;
+
+          font-size: 16px;
+          font-weight: 600;
+          line-height: 1.15;
+          text-align: center;
+
+          opacity: 0;
+
+          pointer-events: none;
+
+          transition: opacity 0.12s ease;
+        }
+
+        /*
+         * Csak valódi egérnél használjuk a hover-t;
+         * érintőképernyőn a tap utáni "beragadó"
+         * hover végig láthatóvá tenné a feliratot.
+         */
+        @media (hover: hover) {
+          .action-button:hover .label {
+            opacity: 1;
+          }
+        }
+
+        .action-button:focus-visible .label,
+        .action-button:active .label {
+          opacity: 1;
+        }
+
+        .icon {
+          width: 44px;
+          height: 44px;
+
+          flex: 0 0 44px;
 
           display: inline-flex;
           align-items: center;
@@ -992,8 +1044,8 @@ class TilosPlayerCard extends HTMLElement {
         }
 
         .icon svg {
-          width: 24px;
-          height: 24px;
+          width: 30px;
+          height: 30px;
 
           fill: currentColor;
         }
@@ -1213,25 +1265,6 @@ class TilosPlayerCard extends HTMLElement {
           áll, azt az action-button frissítés állítja.
         -->
         <div class="buttons">
-          ${
-            musicAssistant
-              ? `
-          <button
-            class="action-button queue"
-            data-action="queue"
-            type="button"
-          >
-            <span class="icon">
-              <svg viewBox="0 0 24 24">
-                <path d="${PLAYLIST_ADD_PATH}"/>
-              </svg>
-            </span>
-            <span>Sorba</span>
-          </button>
-          `
-              : ""
-          }
-
           <button
             class="action-button play"
             data-action="play"
@@ -1242,13 +1275,16 @@ class TilosPlayerCard extends HTMLElement {
                 <path d="${PLAY_PATH}"/>
               </svg>
             </span>
-            <span>Lejátszás</span>
+            <span class="label">Lejátszás</span>
           </button>
 
           <!--
             Folytatható epizód esetén a Lejátszás
             helyett ez a pár látszik; a frissítés
-            kapcsolgatja a rejtettséget.
+            kapcsolgatja a rejtettséget. A DOM
+            sorrendje adja a rács sorrendjét is:
+            négy gombnál ez a kettő kerül az első
+            sorba.
           -->
           <button
             class="action-button restart"
@@ -1261,7 +1297,7 @@ class TilosPlayerCard extends HTMLElement {
                 <path d="${RESTART_PATH}"/>
               </svg>
             </span>
-            <span>Előről</span>
+            <span class="label">Előről</span>
           </button>
 
           <button
@@ -1275,8 +1311,27 @@ class TilosPlayerCard extends HTMLElement {
                 <path d="${PLAY_PATH}"/>
               </svg>
             </span>
-            <span>Folytatás</span>
+            <span class="label">Folytatás</span>
           </button>
+
+          ${
+            musicAssistant
+              ? `
+          <button
+            class="action-button queue"
+            data-action="queue"
+            type="button"
+          >
+            <span class="icon">
+              <svg viewBox="0 0 24 24">
+                <path d="${PLAYLIST_ADD_PATH}"/>
+              </svg>
+            </span>
+            <span class="label">Sorba</span>
+          </button>
+          `
+              : ""
+          }
 
           <button
             class="action-button live"
@@ -1285,10 +1340,10 @@ class TilosPlayerCard extends HTMLElement {
           >
             <span class="icon">
               <svg viewBox="0 0 24 24">
-                <path d="M20 7.5v9A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5v-9A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5ZM7 8.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm4 0v3h6v-3h-6Zm-4 5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm4 0v3h6v-3h-6ZM7 2h1v2H7V2Zm4-1h2v3h-2V1Zm5 1h1v2h-1V2Z"/>
+                <path d="M20 7.5v9A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5v-9A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5ZM7 8.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm4 0v3h6v-3h-6Zm-4 5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm4 0v3h6v-3h-6ZM7 2h1v2H7V2Zm4-1h2v-3h-2V1Zm5 1h1v2h-1V2Z"/>
               </svg>
             </span>
-            <span>Élő adás</span>
+            <span class="label">Élő adás</span>
           </button>
         </div>
 
@@ -1644,10 +1699,14 @@ class TilosPlayerCard extends HTMLElement {
    * pár. A gombok nem épülnek át, csak a
    * rejtettség és az oszlopok száma áll.
    *
-   * Négy látható gombnál (Music Assistant módban:
-   * Sorba + Előről + Folytatás + Élő adás) 2x2-es a
-   * rács, mert a gombok a 32 px ikonnal és a
-   * felirattal magasak; négy egy sorban kivágna.
+   * A rács sorrendje a DOM sorrendje, ezért a
+   * markupban a Lejátszás / Előről / Folytatás
+   * jön előbb, a Sorba utána:
+   *   - 2-3 látható gomb → egy sor,
+   *   - 4 látható gomb (Music Assistant + folytatható
+   *     epizód) → 2x2, az első sorban az Előről és a
+   *     Folytatás, a másodikban a Sorba és az
+   *     Élő adás.
    */
   _updateActionButtons(episodeState) {
     const container =
