@@ -166,6 +166,11 @@ class ProgressBook:
             self._evict()
             return True
 
+        # An entry registered from the media index has a show name; a later
+        # poll that cannot resolve the key (e.g. after a restart, while the
+        # episode keeps playing) must not blank it out.
+        show_name = show_name or entry.show_name
+
         if (entry.position, entry.duration, entry.show_name) == (
             position,
             duration,
@@ -243,15 +248,23 @@ class ProgressBook:
             if not isinstance(position, (int, float)):
                 continue
             duration = raw.get("duration")
+            duration = (
+                int(round(duration)) if isinstance(duration, (int, float)) else 0
+            )
+            # A legacy or hand-edited file can hold a position that is not
+            # worth resuming; keeping it would offer a "Folytatás" that seeks
+            # to the start.
+            if not is_resumable(int(round(position)), duration):
+                continue
             book._entries[key] = ProgressEntry(
                 key=key,
                 position=int(round(position)),
-                duration=(
-                    int(round(duration)) if isinstance(duration, (int, float)) else 0
-                ),
+                duration=duration,
                 show_name=str(raw.get("show_name", "")),
                 updated=str(raw.get("updated", "")),
             )
+
+        book._evict()
         return book
 
     def _evict(self) -> None:

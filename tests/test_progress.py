@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from progress import (
     PLAYBACK_PROGRESS_VERSION,
+    PROGRESS_MAX_ENTRIES,
     ProgressBook,
     effective_position,
     format_now_playing,
@@ -137,6 +138,15 @@ def test_record_returns_false_when_only_the_position_moved():
     )
 
 
+def test_record_keeps_a_known_show_name():
+    book = ProgressBook()
+    book.record(KEY, 120, 4800, "Szabadlábon", NOW)
+    # The tracker has no show name when the key is not in the media index
+    # (e.g. after a restart while the episode keeps playing).
+    book.record(KEY, 150, 4800, "", NOW + timedelta(seconds=30))
+    assert book.get(KEY).show_name == "Szabadlábon"
+
+
 def test_clear_reports_the_change_once():
     book = ProgressBook()
     book.record(KEY, 120, 4800, "Szabadlábon", NOW)
@@ -227,3 +237,24 @@ def test_from_payload_tolerates_bad_entries():
     book = ProgressBook.from_payload(payload)
     assert book.has("k") is False
     assert book.has(KEY) is True
+
+
+def test_from_payload_drops_non_resumable_and_evicts():
+    book = ProgressBook.from_payload(
+        {"entries": {"too-short": {"position": 5, "duration": 4800}}}
+    )
+    assert book.has("too-short") is False
+
+    entries = {
+        f"tilos-2026{index:04d}-100000-120000": {
+            "position": 100,
+            "duration": 4800,
+            "show_name": "x",
+            "updated": (NOW + timedelta(seconds=index)).isoformat(),
+        }
+        for index in range(PROGRESS_MAX_ENTRIES + 1)
+    }
+    book = ProgressBook.from_payload({"entries": entries})
+    assert len(book.to_payload()["entries"]) == PROGRESS_MAX_ENTRIES
+    # The oldest broadcast is the one that goes.
+    assert book.has("tilos-20260000-100000-120000") is False
