@@ -1,2 +1,5 @@
 custom_components/tilos_player/__pycache__/
 /scripts
+
+.venv/
+.pytest_cache/
