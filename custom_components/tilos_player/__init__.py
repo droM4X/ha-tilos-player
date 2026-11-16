@@ -39,6 +39,7 @@ from .const import (
     ARCHIVE_KEY_PATTERN,
     ATTR_ENQUEUE,
     ATTR_MEDIA,
+    ATTR_RESUME,
     ATTR_SHOW_ID,
     ATTR_URL,
     CONF_LOOKBACK_DAYS,
@@ -75,6 +76,7 @@ from .const import (
     SHOWS_URL,
     ATTR_EPISODE_KEY,
 )
+from .progress import format_now_playing
 from .progress_tracker import ProgressTracker
 
 _LOGGER = logging.getLogger(__name__)
@@ -673,12 +675,17 @@ def _patch_player_metadata(
     if state is None:
         return
 
+    # The card header text is built here once; the model owns the format.
+    display = format_now_playing(info.show_name, info.title, info.timestamp)
+
     attrs = dict(state.attributes)
     changed = False
     for key, value in (
         ("media_title", info.title),
         ("media_artist", info.artist),
         ("entity_picture", info.image_url),
+        ("tilos_key", info.key),
+        ("tilos_display", display),
     ):
         if attrs.get(key) != value:
             attrs[key] = value
@@ -704,6 +711,8 @@ def _patch_player_metadata(
             "media_title": info.title,
             "media_artist": info.artist,
             "entity_picture": info.image_url,
+            "tilos_key": info.key,
+            "tilos_display": display,
         },
     )
     _LOGGER.debug(
@@ -712,6 +721,57 @@ def _patch_player_metadata(
         state.state,
         info.key,
     )
+
+
+def _clear_player_markers(
+    hass: HomeAssistant, entity_id: str, state: Any
+) -> None:
+    """Remove the header markers from the player state.
+
+    Only the two markers are touched; the media fields are not. Writes only
+    when there was something to remove, so this cannot feed a
+    state_changed loop.
+    """
+    attrs = dict(state.attributes)
+    changed = False
+    for attr in ("tilos_key", "tilos_display"):
+        if attr in attrs:
+            attrs.pop(attr)
+            changed = True
+    if not changed:
+        return
+
+    hass.states.async_set(entity_id, state.state, attrs)
+
+
+def _drop_stale_player_markers(
+    hass: HomeAssistant,
+    runtime: TilosRuntimeData,
+    entity_id: str,
+    state: Any,
+) -> None:
+    """Keep or drop the markers when the current media is not a known key.
+
+    A player that reports no archive key may still be playing our episode:
+    some players only expose the file name through media_title, and that is
+    the value our own patch wrote there. So the marker is dropped only when
+    the state no longer matches the metadata we wrote for it — otherwise the
+    player has moved to other media (Spotify, a direct link, ...).
+    """
+    marker = state.attributes.get("tilos_key")
+    if not marker:
+        return
+
+    known = runtime.media_index.get(marker)
+    if (
+        known is not None
+        and state.attributes.get("media_title") == known.title
+        and state.attributes.get("media_artist") == known.artist
+    ):
+        return
+
+    _LOGGER.debug("Player %s moved away from %s", entity_id, marker)
+    _clear_player_markers(hass, entity_id, state)
 
 
 def refresh_player_metadata(
@@ -726,7 +786,10 @@ def refresh_player_metadata(
     This is the core of the metadata handling: it always looks at what the
     player reports *right now* and resolves it through the local index, so
     queue playback (where the card never sees the track that starts) gets
-    the correct title/cover instead of a stale one.
+    the correct title/cover instead of a stale one. When the current media
+    is not a known archive file, the header markers are dropped — but only
+    when the state no longer matches what we wrote for them, because our own
+    patch is what put the file name into media_title.
     """
     if state is None:
         state = hass.states.get(entity_id)
@@ -735,11 +798,13 @@ def refresh_player_metadata(
 
     key = _archive_key_from_state(state)
     if key is None:
+        _drop_stale_player_markers(hass, runtime, entity_id, state)
         return
 
     info = runtime.media_index.get(key)
     if info is None:
         _LOGGER.debug("No metadata registered for archive file %s", key)
+        _drop_stale_player_markers(hass, runtime, entity_id, state)
         return
 
     _patch_player_metadata(hass, runtime, entity_id, info, force=force)
@@ -761,7 +826,13 @@ def _start_metadata_watch(hass: HomeAssistant, runtime: TilosRuntimeData) -> Non
         entity_id = event.data.get("entity_id")
         if entity_id not in runtime.watched_players:
             return
+        old_state = event.data.get("old_state")
         new_state = event.data.get("new_state")
+        tracker = runtime.progress
+        if tracker is not None:
+            # The old state is the freshest position we have for a player
+            # that stopped or moved on.
+            tracker.note_state_change(entity_id, old_state, new_state)
         if new_state is None:
             return
         refresh_player_metadata(hass, runtime, entity_id, new_state)
@@ -1037,12 +1108,18 @@ async def play_selected_episode(
     runtime: TilosRuntimeData,
     entity_id: str,
     enqueue: str | None = None,
+    resume: bool = False,
 ) -> None:
     """Play (or enqueue) the selected archive episode on `entity_id`.
 
     The episode is registered in the local index first, so the metadata can
     be resolved later — including when Music Assistant starts a queued item
     on its own, without the card being involved.
+
+    `resume` starts the episode from the stored position. It only means
+    anything when the episode starts now: for a queued item there is nothing
+    to seek, and without it the episode starts from the beginning and the
+    stored position is dropped.
     """
     episode = runtime.selected_episode
     show = runtime.selected_show
@@ -1065,12 +1142,27 @@ async def play_selected_episode(
     if not image_url:
         image_url = DEFAULT_EPISODE_IMAGE
 
-    register_episode(runtime, episode, show_name, image_url)
+    key = register_episode(runtime, episode, show_name, image_url)
 
     # Watch this player from now on: the metadata watcher resolves whatever
     # archive file it reports (direct playback and queue items alike).
     runtime.watched_players.add(entity_id)
     _start_metadata_watch(hass, runtime)
+
+    tracker = runtime.progress
+    position = 0
+    # Only these start the episode now; the others only put it in the queue.
+    starts_now = enqueue in (None, "play", "replace")
+    if key is not None and tracker is not None:
+        if resume and starts_now:
+            position = tracker.position(key)
+        else:
+            # "Előről", or a queued item: the old position is gone right away.
+            tracker.clear(key)
+        if starts_now:
+            tracker.start_tracking(entity_id, key)
+        else:
+            tracker.queue_tracking(key)
 
     if enqueue is None:
         _LOGGER.info(
@@ -1086,6 +1178,13 @@ async def play_selected_episode(
             episode.url,
         )
         await play_on_music_assistant(hass, entity_id, episode.url, enqueue)
+
+    # A queued item cannot be seeked: it is not playing yet. The seek only
+    # runs once the player really reports this episode.
+    if key is not None and tracker is not None and starts_now and position > 0:
+        hass.async_create_task(
+            tracker.async_seek_when_ready(entity_id, key, position)
+        )
 
     # The archive mp3 has no ID3 tags, so re-apply the metadata once the
     # player's startup burst has settled.
@@ -1166,6 +1265,8 @@ PLAY_SERVICE_SCHEMA = vol.Schema(
         # When set, the episode goes through Music Assistant's queue
         # (play / add / next / ...). Without it we play directly.
         vol.Optional(ATTR_ENQUEUE): vol.In(ENQUEUE_OPTIONS),
+        # Start from the stored position of the episode (see the tracker).
+        vol.Optional(ATTR_RESUME, default=False): cv.boolean,
     }
 )
 
@@ -1181,6 +1282,7 @@ def _async_register_play_service(
         entity_id = call.data[ATTR_ENTITY_ID]
         media = call.data.get(ATTR_MEDIA, MEDIA_EPISODE)
         enqueue = call.data.get(ATTR_ENQUEUE)
+        resume = call.data.get(ATTR_RESUME, False)
         if media == MEDIA_LIVE:
             await play_live_stream(hass, entity_id)
             return
@@ -1193,7 +1295,9 @@ def _async_register_play_service(
                 return
             await play_direct_url(hass, runtime, entity_id, url, enqueue)
             return
-        await play_selected_episode(hass, runtime, entity_id, enqueue)
+        await play_selected_episode(
+            hass, runtime, entity_id, enqueue, resume=resume
+        )
 
     hass.services.async_register(
         DOMAIN, SERVICE_PLAY, async_play, schema=PLAY_SERVICE_SCHEMA

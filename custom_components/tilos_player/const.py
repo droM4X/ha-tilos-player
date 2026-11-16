@@ -114,3 +114,7 @@ ATTR_URL = "url"
 # Assistant instead of being played directly (play / add / next / ...).
 ATTR_ENQUEUE = "enqueue"
 ENQUEUE_OPTIONS = ["play", "add", "next", "replace", "replace_next"]
+# Start the episode from the stored position (media_player.media_seek).
+# Only meaningful when the episode starts now; for queued items and for
+# media: url/live it is ignored.
+ATTR_RESUME = "resume"

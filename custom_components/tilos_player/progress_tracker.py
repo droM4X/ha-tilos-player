@@ -11,13 +11,16 @@ module without a circular import. Only the types are imported for checking.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from collections import OrderedDict
 from collections.abc import Callable, Iterable
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.storage import Store
 
@@ -26,8 +29,14 @@ from .progress import (
     PLAYBACK_PROGRESS_VERSION,
     PROGRESS_POLL_INTERVAL,
     PROGRESS_SAVE_DELAY,
+    SEEK_RETRY_COUNT,
+    SEEK_RETRY_DELAY,
+    SEEK_TOLERANCE,
+    SEEK_WAIT_TIMEOUT,
     ProgressBook,
     effective_position,
+    is_finished,
+    is_resumable,
 )
 
 if TYPE_CHECKING:
@@ -97,9 +106,89 @@ class ProgressTracker:
             self._poll_unsub = None
         await self._store.async_save(self.book.to_payload())
 
+    async def async_seek_when_ready(
+        self, entity_id: str, key: str, position: int
+    ) -> None:
+        """Seek to a stored position once this episode is really playing.
+
+        The player reports the archive file only after the media is loaded,
+        and a seek before that would move whatever else is on the player,
+        so first wait for an active state that carries our key. Never
+        raises: when the seek does not take, the playback goes on from the
+        start.
+        """
+        if not await self._await_playing_episode(entity_id, key):
+            _LOGGER.warning(
+                "Seek to %s s failed on %s: the episode did not start",
+                position,
+                entity_id,
+            )
+            return
+
+        for attempt in range(1, SEEK_RETRY_COUNT + 1):
+            try:
+                await self._hass.services.async_call(
+                    "media_player",
+                    "media_seek",
+                    {"entity_id": entity_id, "seek_position": position},
+                    blocking=True,
+                )
+            except (HomeAssistantError, TimeoutError) as err:
+                _LOGGER.warning(
+                    "Seek to %s s failed on %s: %s", position, entity_id, err
+                )
+                return
+
+            if self._seek_accepted(entity_id, position):
+                _LOGGER.debug("Seek to %s s accepted on %s", position, entity_id)
+                return
+
+            _LOGGER.warning(
+                "Seek to %s s on %s not confirmed (attempt %d/%d)",
+                position,
+                entity_id,
+                attempt,
+                SEEK_RETRY_COUNT,
+            )
+            if attempt < SEEK_RETRY_COUNT:
+                await asyncio.sleep(SEEK_RETRY_DELAY)
+
+        _LOGGER.warning("Seek to %s s failed on %s", position, entity_id)
+
+    async def _await_playing_episode(self, entity_id: str, key: str) -> bool:
+        """Wait for the player to be active and to report exactly this key."""
+        deadline = time.monotonic() + SEEK_WAIT_TIMEOUT
+        while True:
+            state = self._hass.states.get(entity_id)
+            if (
+                state is not None
+                and state.state in ACTIVE_PLAYER_STATES
+                and self._key_from_state(state) == key
+            ):
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            await asyncio.sleep(1)
+
+    def _seek_accepted(self, entity_id: str, position: int) -> bool:
+        """True when the player now reports the position we asked for."""
+        state = self._hass.states.get(entity_id)
+        if state is None:
+            return False
+        current = effective_position(
+            state.attributes, state.state, datetime.now(timezone.utc)
+        )
+        return current is not None and abs(current - position) <= SEEK_TOLERANCE
+
     def start_tracking(self, entity_id: str, key: str) -> None:
-        """Remember that the playback started on this player is ours."""
+        """Remember that the playback started on this player is ours.
+
+        The key is also queued, so a player that reports the archive file
+        only after the first poll (Music Assistant while the file loads) is
+        re-adopted instead of lost.
+        """
         self._active[entity_id] = key
+        self.queue_tracking(key)
 
     def queue_tracking(self, key: str) -> None:
         """Mark a key that is queued and only plays later."""
@@ -111,10 +200,13 @@ class ProgressTracker:
     def clear(self, key: str) -> None:
         """Drop a position ("Előről" or a finished episode).
 
-        The entry is gone, so the pickers must see the change right away.
+        The entry is gone, so the pickers must see the change right away,
+        and the file must not get the entry back from a later write — a
+        crash just after "Előről" must not bring the position back.
         """
         if self.book.clear(key):
             self._notify_listeners()
+            self._save()
 
     def has(self, key: str) -> bool:
         """True when this episode has a stored position."""
@@ -155,11 +247,10 @@ class ProgressTracker:
         if old_state is not None:
             position = old_state.attributes.get("media_position")
             if isinstance(position, (int, float)):
-                duration = old_state.attributes.get("media_duration") or 0
                 self._record(
                     key,
                     float(position),
-                    float(duration),
+                    float(old_state.attributes.get("media_duration") or 0),
                     self._show_name(key),
                     datetime.now(timezone.utc),
                 )
@@ -179,6 +270,8 @@ class ProgressTracker:
         """Handle one watched player: adopt a queued item, read, or close."""
         state = self._hass.states.get(entity_id)
         if state is None:
+            # The entity is gone — nothing left to read on it.
+            self._active.pop(entity_id, None)
             return
 
         key = None
@@ -219,7 +312,14 @@ class ProgressTracker:
         show_name: str,
         now: datetime,
     ) -> None:
-        """Store one reading; only a change in the resumable keys is announced."""
+        """Store one reading; only a change in the resumable keys is announced.
+
+        A reading that is neither resumable nor finished says nothing about
+        the episode: a ten-second accidental playback must not delete a
+        twenty-minute stored position, so it is not passed to the book.
+        """
+        if not is_resumable(position, duration) and not is_finished(position, duration):
+            return
         if self.book.record(key, position, duration, show_name, now):
             self._notify_listeners()
 
