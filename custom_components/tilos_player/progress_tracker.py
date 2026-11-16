@@ -134,10 +134,17 @@ class ProgressTracker:
                     blocking=True,
                 )
             except (HomeAssistantError, TimeoutError) as err:
+                # One transient error is one failed attempt, not the end of the
+                # seek: the remaining attempts still run.
                 _LOGGER.warning(
                     "Seek to %s s failed on %s: %s", position, entity_id, err
                 )
-                return
+                continue
+
+            # A player writes media_position on its own update cycle, so the
+            # call returning is not yet proof that the seek took. The same
+            # delay is also the gap between the attempts.
+            await asyncio.sleep(SEEK_RETRY_DELAY)
 
             if self._seek_accepted(entity_id, position):
                 _LOGGER.debug("Seek to %s s accepted on %s", position, entity_id)
@@ -150,8 +157,6 @@ class ProgressTracker:
                 attempt,
                 SEEK_RETRY_COUNT,
             )
-            if attempt < SEEK_RETRY_COUNT:
-                await asyncio.sleep(SEEK_RETRY_DELAY)
 
         _LOGGER.warning("Seek to %s s failed on %s", position, entity_id)
 
@@ -228,6 +233,11 @@ class ProgressTracker:
     def note_state_change(self, entity_id: str, old_state: Any, new_state: Any) -> None:
         """Close the tracking when a player we started moved on or stopped.
 
+        A player that is still active but whose key cannot be resolved right
+        now is no signal — our own metadata patch rewrites one of the fields
+        the resolver reads — so the tracking stays open and the poll keeps
+        storing positions. Only stopping or a resolvable other key closes it.
+
         The last stored position stays: an interrupted show is still
         resumable. The old state is the freshest position we have — by the
         next poll the player already reports something else.
@@ -236,11 +246,10 @@ class ProgressTracker:
         if key is None:
             return
 
-        new_key = None
         if new_state is not None and new_state.state in ACTIVE_PLAYER_STATES:
             new_key = self._key_from_state(new_state)
-        if new_key == key:
-            return
+            if new_key is None or new_key == key:
+                return
 
         self._active.pop(entity_id, None)
 
