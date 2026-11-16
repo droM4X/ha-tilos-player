@@ -2,6 +2,10 @@
 
 DOMAIN = "tilos_player"
 
+# Player states in which the metadata and the playback position are worth
+# reading — off/idle/unavailable means nothing is playing.
+ACTIVE_PLAYER_STATES = {"playing", "paused", "buffering"}
+
 # API endpoints
 API_BASE = "https://tilos.hu/api"
 SHOWS_URL = f"{API_BASE}/show"

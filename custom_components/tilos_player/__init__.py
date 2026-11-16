@@ -35,6 +35,7 @@ from homeassistant.components.lovelace.resources import (
 )
 
 from .const import (
+    ACTIVE_PLAYER_STATES,
     ARCHIVE_KEY_PATTERN,
     ATTR_ENQUEUE,
     ATTR_MEDIA,
@@ -74,6 +75,7 @@ from .const import (
     SHOWS_URL,
     ATTR_EPISODE_KEY,
 )
+from .progress_tracker import ProgressTracker
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -143,6 +145,11 @@ class EpisodeInfo:
     artist: str
     image_url: str
     url: str
+    # The show and the broadcast time are what the card header needs: the
+    # display text is built from these, not from the player's media_artist
+    # (which carries our " // Tilos Rádió" suffix) or media_title.
+    show_name: str = ""
+    timestamp: int = 0  # ms epoch of the broadcast
 
 
 @dataclass
@@ -181,6 +188,9 @@ class TilosRuntimeData:
     show_images: dict[str, str] = field(default_factory=dict)
     metadata_state_unsub: Any = None
     metadata_poll_unsub: Any = None
+    # Playback positions (Store-backed) — created in the entry setup, before
+    # the platforms, so the first render already sees the stored progress.
+    progress: ProgressTracker | None = None
     # time.monotonic() of the last metadata write, per entity
     last_metadata_write: dict[str, float] = field(default_factory=dict)
 
@@ -343,11 +353,6 @@ async def url_exists(session: aiohttp.ClientSession, url: str) -> bool:
 # and extension), which is how we recognise one of our episodes.
 _ARCHIVE_KEY_RE = re.compile(ARCHIVE_KEY_PATTERN)
 
-# Player states in which the metadata is worth (re-)applying.
-# When the player is off/idle/unavailable ("nothing playing") we skip.
-_ACTIVE_PLAYER_STATES = {"playing", "paused", "buffering"}
-
-
 def archive_key(value: Any) -> str | None:
     """Return the 'tilos-...' file name inside `value`, if there is one."""
     if not value:
@@ -376,6 +381,8 @@ def _remember_media(
     artist: str,
     image_url: str,
     url: str,
+    show_name: str = "",
+    timestamp: int = 0,
 ) -> None:
     """Store one media metadata record in the bounded local index."""
     runtime.media_index[key] = EpisodeInfo(
@@ -384,6 +391,8 @@ def _remember_media(
         artist=artist,
         image_url=image_url,
         url=url,
+        show_name=show_name,
+        timestamp=timestamp,
     )
     runtime.media_index.move_to_end(key)
 
@@ -410,6 +419,8 @@ def register_episode(
         f"{show_name}{MEDIA_ARTIST_SUFFIX}",
         image_url,
         episode.url,
+        show_name,
+        episode.timestamp,
     )
     return key
 
@@ -719,7 +730,7 @@ def refresh_player_metadata(
     """
     if state is None:
         state = hass.states.get(entity_id)
-    if state is None or state.state not in _ACTIVE_PLAYER_STATES:
+    if state is None or state.state not in ACTIVE_PLAYER_STATES:
         return
 
     key = _archive_key_from_state(state)
@@ -1220,6 +1231,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     entry.runtime_data = runtime
 
+    # The stored positions are read before the platforms, so the pickers and
+    # the card already see them on the first render.
+    progress = ProgressTracker(hass, entry.entry_id, runtime, _archive_key_from_state)
+    runtime.progress = progress
+    await progress.async_start()
+
     # Watch the integration-configured player from the start, so playback
     # that did not go through the card (e.g. started from the Music
     # Assistant app) also gets the metadata once the file is in the index.
@@ -1237,6 +1254,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     stop_metadata_watch(entry.runtime_data)
+    if entry.runtime_data.progress is not None:
+        await entry.runtime_data.progress.async_stop()
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
         _async_unregister_favorite_services(hass)
