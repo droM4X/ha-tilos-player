@@ -248,9 +248,11 @@ class TilosPlayerCard extends HTMLElement {
 
     /*
      * A render új DOM-ot épít, ezért a
-     * leírás tartalmát újra be kell tölteni.
+     * leírás tartalmát és a borító szövegét
+     * újra be kell tölteni.
      */
     this._renderedInfo = null;
+    this._renderedCover = null;
 
     const musicAssistant =
       this._isMusicAssistant();
@@ -1618,14 +1620,17 @@ class TilosPlayerCard extends HTMLElement {
      * hassUrl-on megy, mint a logó.
      */
     if (image) {
-      const src = info.image.startsWith("/")
-        ? this._hass.hassUrl(info.image)
-        : info.image;
-
       image.hidden = !info.image;
 
-      if (image.getAttribute("src") !== src) {
-        image.setAttribute("src", src);
+      /* Üres képhez nem írunk src-et. */
+      if (info.image) {
+        const src = info.image.startsWith("/")
+          ? this._hass.hassUrl(info.image)
+          : info.image;
+
+        if (image.getAttribute("src") !== src) {
+          image.setAttribute("src", src);
+        }
       }
     }
 
