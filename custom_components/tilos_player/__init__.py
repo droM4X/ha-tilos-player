@@ -744,6 +744,29 @@ def _clear_player_markers(
     hass.states.async_set(entity_id, state.state, attrs)
 
 
+def _state_is_ours(
+    runtime: TilosRuntimeData,
+    state: Any,
+    key: str,
+) -> bool:
+    """True when the player state still reports the media we track for `key`.
+
+    The archive-key resolver reads media_content_id and media_title, and media_title
+    is the value our own patch wrote, so a state whose key cannot be resolved is
+    not proof that the player moved on. The state is still ours only when it carries
+    the marker we wrote for this key and the title and artist of that record.
+    This is the single rule for both the header markers and the progress tracking.
+    """
+    known = runtime.media_index.get(key)
+    if known is None:
+        return False
+    return (
+        state.attributes.get("tilos_key") == key
+        and state.attributes.get("media_title") == known.title
+        and state.attributes.get("media_artist") == known.artist
+    )
+
+
 def _drop_stale_player_markers(
     hass: HomeAssistant,
     runtime: TilosRuntimeData,
@@ -762,12 +785,7 @@ def _drop_stale_player_markers(
     if not marker:
         return
 
-    known = runtime.media_index.get(marker)
-    if (
-        known is not None
-        and state.attributes.get("media_title") == known.title
-        and state.attributes.get("media_artist") == known.artist
-    ):
+    if _state_is_ours(runtime, state, marker):
         return
 
     _LOGGER.debug("Player %s moved away from %s", entity_id, marker)
@@ -1337,7 +1355,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # The stored positions are read before the platforms, so the pickers and
     # the card already see them on the first render.
-    progress = ProgressTracker(hass, entry.entry_id, runtime, _archive_key_from_state)
+    # The rule that tells our media from a takeover needs the metadata index,
+    # so it is passed bound to this entry's runtime.
+    progress = ProgressTracker(
+        hass,
+        entry.entry_id,
+        runtime,
+        _archive_key_from_state,
+        lambda state, key: _state_is_ours(runtime, state, key),
+    )
     runtime.progress = progress
     await progress.async_start()
 

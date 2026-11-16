@@ -4,9 +4,10 @@ The pure model (keys, positions, the resume rules) is in ``progress.py``; this
 module adds the storage, the 30 second poll and the listeners that tell the
 pickers a progress flag has changed.
 
-It imports nothing from the package at runtime — the archive-key resolver and
-the shared runtime data are passed in, so ``__init__.py`` can import this
-module without a circular import. Only the types are imported for checking.
+It imports nothing from the package at runtime — the archive-key resolver, the
+rule that tells our media from a takeover, and the shared runtime data are
+passed in, so ``__init__.py`` can import this module without a circular
+import. Only the types are imported for checking.
 """
 
 from __future__ import annotations
@@ -60,8 +61,14 @@ class ProgressTracker:
         entry_id: str,
         runtime: TilosRuntimeData,
         key_from_state: Callable[[Any], str | None],
+        state_is_ours: Callable[[Any, str], bool],
     ) -> None:
-        """Build the tracker for one config entry."""
+        """Build the tracker for one config entry.
+
+        `state_is_ours` is the package's rule for whether a player state still
+        reports the media we track; the tracker cannot check it itself because
+        the metadata index and the metadata rules live in `__init__.py`.
+        """
         self._hass = hass
         # Per entry, so two instances don't fight over one file.
         self._store = Store(
@@ -72,6 +79,7 @@ class ProgressTracker:
         )
         self._runtime = runtime
         self._key_from_state = key_from_state
+        self._state_is_ours = state_is_ours
         self.book = ProgressBook()
         # The pickers re-publish their attributes when a progress flag flips.
         self.listeners: set[Callable[[], None]] = set()
@@ -135,10 +143,12 @@ class ProgressTracker:
                 )
             except (HomeAssistantError, TimeoutError) as err:
                 # One transient error is one failed attempt, not the end of the
-                # seek: the remaining attempts still run.
+                # seek: the remaining attempts still run, and they stay as far
+                # apart as the successful ones.
                 _LOGGER.warning(
                     "Seek to %s s failed on %s: %s", position, entity_id, err
                 )
+                await asyncio.sleep(SEEK_RETRY_DELAY)
                 continue
 
             # A player writes media_position on its own update cycle, so the
@@ -297,8 +307,23 @@ class ProgressTracker:
             else:
                 return
 
-        if key != tracked:
-            # Something else took the player over; the entry stays as it is.
+        if state.state not in ACTIVE_PLAYER_STATES:
+            # Out of the active set (idle, off, …) — nothing left to track.
+            self._active.pop(entity_id, None)
+            return
+
+        if key is not None and key != tracked:
+            # A resolvable other key: something else took the player over, and
+            # the entry stays as it is.
+            self._active.pop(entity_id, None)
+            return
+
+        if key is None and not self._state_is_ours(state, tracked):
+            # The key cannot be resolved and the state no longer carries the
+            # metadata we wrote for the tracked episode, so the player has moved
+            # to media we cannot name. When it still matches, this is our own
+            # metadata patch rewriting media_title, not a takeover: the position
+            # can be read without the key, so the tracking stays open.
             self._active.pop(entity_id, None)
             return
 
