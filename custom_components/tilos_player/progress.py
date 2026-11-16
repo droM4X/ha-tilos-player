@@ -111,6 +111,17 @@ def is_resumable(position: float, duration: float) -> bool:
     return not is_finished(position, duration)
 
 
+def should_keep_tracking(recorded: bool, stored: bool) -> bool:
+    """Keep tracking unless the reading was stored and the entry is gone (finished).
+
+    A reading that never reached the book says nothing about the episode, so
+    the first poll of a fresh playback — always below the resume minimum — must
+    not close the tracking; only a reading the book accepted and that no longer
+    has an entry means the episode is finished.
+    """
+    return not recorded or stored
+
+
 @dataclass
 class ProgressEntry:
     """One stored position for one archive episode key."""

@@ -757,7 +757,7 @@ class TilosPlayerCard extends HTMLElement {
         }
 
         /*
-         * Folyamatban ikon minden listakor.
+         * Folyamatban ikon minden listasorban.
          * A slot üresen is helyet foglal, hogy a
          * címkék végig egy vonalban maradjanak.
          */
@@ -1459,10 +1459,10 @@ class TilosPlayerCard extends HTMLElement {
             }
 
             /*
-             * Előről: a Lejátszás mismojan, de
-             * a backend törli a mentett pozíciót
-             * (resume nélkül), így az epizód az
-             * elejéről indul.
+             * Előről: ugyanaz a hívás, mint a
+             * Lejátszásé, de a backend törli a
+             * mentett pozíciót (resume nélkül),
+             * így az epizód az elejéről indul.
              */
             if (action === "restart") {
               this._playSource(
@@ -1640,7 +1640,7 @@ class TilosPlayerCard extends HTMLElement {
   }
 
   /*
-   * A gombsor: Lejátszás vagy a Előről / Folytatás
+   * A gombsor: Lejátszás vagy az Előről / Folytatás
    * pár. A gombok nem épülnek át, csak a
    * rejtettség és az oszlopok száma áll.
    *
@@ -2525,8 +2525,9 @@ class TilosPlayerCard extends HTMLElement {
    * szolgáltatást hívja, így az epizód a
    * lejátszási sorba kerül (add/play/...).
    *
-   * resume igazán a backend a mentett pozícióhoz
-   * ugrik; sorba állítva nem értelmezett.
+   * Ha a resume igaz, a backend a mentett
+   * pozícióhoz ugrik; sorba állítva nem
+   * értelmezett.
    */
   _callTilosPlay(media, enqueue, resume) {
     const target = this._targetPlayer();

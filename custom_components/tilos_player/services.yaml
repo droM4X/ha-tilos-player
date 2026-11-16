@@ -44,7 +44,8 @@ play:
         Compare with "Előről": when true, playback starts from the stored
         position of the selected episode (ignored for media: url/live and
         for queued items). Without it the episode starts from the beginning
-        and the stored position is dropped.
+        and the stored position is dropped. For a queued item (add, next,
+        replace_next) the stored position is not resumed but dropped.
       required: false
       default: false
       selector:

@@ -10,6 +10,7 @@ from progress import (
     format_now_playing,
     is_finished,
     is_resumable,
+    should_keep_tracking,
 )
 
 KEY = "tilos-20260717-100000-120000"
@@ -95,6 +96,17 @@ def test_is_resumable_requires_room_before_the_end():
 
 def test_is_resumable_with_unknown_duration():
     assert is_resumable(120, 0) is True
+
+
+def test_should_keep_tracking_before_the_first_resumable_reading():
+    # The first poll of a fresh playback reads a position below the minimum:
+    # nothing reaches the book, so the tracking must stay open.
+    assert should_keep_tracking(False, False) is True
+
+
+def test_should_keep_tracking_closes_only_after_a_stored_reading():
+    assert should_keep_tracking(True, False) is False
+    assert should_keep_tracking(True, True) is True
 
 
 def test_record_keeps_a_resumable_position():

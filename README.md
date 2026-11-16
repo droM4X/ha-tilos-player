@@ -64,8 +64,8 @@ A mentett lista a `sensor.tilos_radio_saved_episodes` entitásban van (állapota
 A pozíció a `.storage/tilos_player_progress_<entry_id>` fájlban van, így újraindítás után is megmarad. Félpercenként (30 másodpercenként) mérjük a lejátszó pozícióját, és csak folytatásra érdemes pozíciót tartunk meg: egy végigjátszott adás bejegyzése törlődik, egy félbehagyott viszont folytatás marad.
 
 - Csak az ezen a kártyán indított epizódokhoz tartozik mentett pozíció (a mentett epizódok is), az élő adás és a link lejátszó soha.
-- A kártyán az **Előről** gomb viszi az epizód elejére (a bejegyzést törli), a **Folytatás** a mentett pozícióról indul. Az ikon a műsor- és epizódsorban azt jelzi, ahol van mentett pozíció.
-- Automatizáláshoz a `tilos_player.play` `resume: true` mezővel hívható ugyan ez (a `url`/`live` mediákra és a csak sorba adott epizódra nem vonatkozik).
+- A kártyán az **Előről** gomb viszi az epizód elejére (a bejegyzést törli), a **Folytatás** a mentett pozícióról indul. Az ikon a műsor- és epizódsorban jelzi, hogy mely epizódhoz van mentett pozíció.
+- Automatizáláshoz a `tilos_player.play` `resume: true` mezővel hívható ugyanez (a `url`/`live` mediákra és a csak sorba adott epizódra nem vonatkozik).
 - A fejléc és az epizódsor ugyanazt az UTC dátum-formátumot használja (`YYYY.MM.DD.`), a zóna beállításától függetlenül.
 
 ### Minimális kézi config

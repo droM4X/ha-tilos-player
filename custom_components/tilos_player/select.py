@@ -397,10 +397,10 @@ class TilosEpisodeSelect(SelectEntity):
         attrs["episodes"] = [
             {
                 "label": label,
-                "key": saved_episode_key(episode),
-                "progress": self._progress_flag(episode),
+                "key": saved_episode_key(item),
+                "progress": self._progress_flag(item),
             }
-            for label, episode in self._labeled_episodes()
+            for label, item in self._labeled_episodes()
         ]
 
         if episode:

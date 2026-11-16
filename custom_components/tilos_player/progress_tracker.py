@@ -38,6 +38,7 @@ from .progress import (
     effective_position,
     is_finished,
     is_resumable,
+    should_keep_tracking,
 )
 
 if TYPE_CHECKING:
@@ -171,14 +172,24 @@ class ProgressTracker:
         _LOGGER.warning("Seek to %s s failed on %s", position, entity_id)
 
     async def _await_playing_episode(self, entity_id: str, key: str) -> bool:
-        """Wait for the player to be active and to report exactly this key."""
+        """Wait for the player to be active and to report this episode.
+
+        The key is only resolvable while the player still reports the archive
+        URL; our own metadata patch replaces `media_title` a few seconds after
+        the playback starts, so a state that carries the metadata we wrote for
+        this key is accepted as well — otherwise the wait times out on exactly
+        the players whose key can only be read from `media_title`.
+        """
         deadline = time.monotonic() + SEEK_WAIT_TIMEOUT
         while True:
             state = self._hass.states.get(entity_id)
             if (
                 state is not None
                 and state.state in ACTIVE_PLAYER_STATES
-                and self._key_from_state(state) == key
+                and (
+                    self._key_from_state(state) == key
+                    or self._state_is_ours(state, key)
+                )
             ):
                 return True
             if time.monotonic() >= deadline:
@@ -249,8 +260,9 @@ class ProgressTracker:
         storing positions. Only stopping or a resolvable other key closes it.
 
         The last stored position stays: an interrupted show is still
-        resumable. The old state is the freshest position we have — by the
-        next poll the player already reports something else.
+        resumable. The old state, read the way the poll reads it, is the
+        freshest position we have — by the next poll the player already
+        reports something else.
         """
         key = self._active.get(entity_id)
         if key is None:
@@ -264,14 +276,18 @@ class ProgressTracker:
         self._active.pop(entity_id, None)
 
         if old_state is not None:
-            position = old_state.attributes.get("media_position")
-            if isinstance(position, (int, float)):
+            # Read the position the way the poll does: the raw `media_position`
+            # is the value the player last wrote, so it can be older than the
+            # position already stored and would move the resume point backwards.
+            now = datetime.now(timezone.utc)
+            position = effective_position(old_state.attributes, old_state.state, now)
+            if position is not None:
                 self._record(
                     key,
-                    float(position),
+                    position,
                     float(old_state.attributes.get("media_duration") or 0),
                     self._show_name(key),
-                    datetime.now(timezone.utc),
+                    now,
                 )
                 if self.book.take_dirty():
                     self._save()
@@ -332,10 +348,15 @@ class ProgressTracker:
             return
 
         duration = state.attributes.get("media_duration") or 0
-        self._record(tracked, position, float(duration), self._show_name(tracked), now)
+        recorded = self._record(
+            tracked, position, float(duration), self._show_name(tracked), now
+        )
 
-        if not self.book.has(tracked):
-            # Finished (or dropped below the minimum) — nothing left to track.
+        if not should_keep_tracking(recorded, self.book.has(tracked)):
+            # The reading reached the book and the entry is gone: the episode
+            # finished. The close is gated on `recorded` because the first poll
+            # of a fresh playback always reads a position below the resume
+            # minimum, which says nothing and must not drop the tracking.
             self._active.pop(entity_id, None)
 
     def _record(
@@ -345,17 +366,20 @@ class ProgressTracker:
         duration: float,
         show_name: str,
         now: datetime,
-    ) -> None:
+    ) -> bool:
         """Store one reading; only a change in the resumable keys is announced.
 
         A reading that is neither resumable nor finished says nothing about
         the episode: a ten-second accidental playback must not delete a
-        twenty-minute stored position, so it is not passed to the book.
+        twenty-minute stored position, so it is not passed to the book. The
+        return value tells the poll whether the reading reached the book at all
+        — without it the poll cannot tell "finished" from "not yet resumable".
         """
         if not is_resumable(position, duration) and not is_finished(position, duration):
-            return
+            return False
         if self.book.record(key, position, duration, show_name, now):
             self._notify_listeners()
+        return True
 
     def _show_name(self, key: str) -> str:
         """Show name of a key from the metadata index, empty when unknown."""
