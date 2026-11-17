@@ -982,6 +982,15 @@ class TilosPlayerCard extends HTMLElement {
           stroke-linejoin: round;
         }
 
+        .icon svg .stroke.sharp {
+          stroke-linecap: butt;
+          stroke-linejoin: miter;
+        }
+
+        .icon svg .stroke.live-arc {
+          stroke-width: 2;
+        }
+
         /*
          * Az epizód műsorleírása / tracklistája.
          * A gombsor alatt nyílik ki és lefelé
@@ -1261,11 +1270,11 @@ class TilosPlayerCard extends HTMLElement {
           >
             <span class="icon">
               <svg viewBox="0 0 24 24">
-                <path class="stroke" d="M3.5,5H20.5"/>
-                <path class="stroke" d="M3.5,10.5H11"/>
-                <path class="stroke" d="M3.5,14.5H11"/>
-                <path class="stroke" d="M3.5,18.5H11"/>
-                <path class="stroke" d="M15,10L21.5,14.5L15,19Z"/>
+                <path class="stroke sharp" d="M3.5,5H20.5"/>
+                <path class="stroke sharp" d="M3.5,10.5H11"/>
+                <path class="stroke sharp" d="M3.5,14.5H11"/>
+                <path class="stroke sharp" d="M3.5,18.5H11"/>
+                <path class="stroke sharp" d="M15,10L21.5,14.5L15,19Z"/>
               </svg>
             </span>
           </button>
@@ -1282,11 +1291,11 @@ class TilosPlayerCard extends HTMLElement {
           >
             <span class="icon">
               <svg viewBox="0 0 24 24">
-                <path class="stroke" d="M6.5,6.2A8,8 0 0,0 6.5,17.8"/>
-                <path class="stroke" d="M9.4,8.6A5,5 0 0,0 9.4,15.4"/>
-                <path class="stroke" d="M17.5,6.2A8,8 0 0,1 17.5,17.8"/>
-                <path class="stroke" d="M14.6,8.6A5,5 0 0,1 14.6,15.4"/>
-                <path d="M12,9.4A2.6,2.6 0 1,1 12,14.6A2.6,2.6 0 1,1 12,9.4Z"/>
+                <path class="stroke live-arc" d="M3.35,6.59A10.2,10.2 0 0,0 3.35,17.41"/>
+                <path class="stroke live-arc" d="M6.4,8.5A6.6,6.6 0 0,0 6.4,15.5"/>
+                <path class="stroke live-arc" d="M20.65,6.59A10.2,10.2 0 0,1 20.65,17.41"/>
+                <path class="stroke live-arc" d="M17.6,8.5A6.6,6.6 0 0,1 17.6,15.5"/>
+                <path d="M12,9.8A2.2,2.2 0 1,1 12,14.2A2.2,2.2 0 1,1 12,9.8Z"/>
               </svg>
             </span>
           </button>
