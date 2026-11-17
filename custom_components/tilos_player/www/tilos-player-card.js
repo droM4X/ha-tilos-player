@@ -35,7 +35,10 @@ const PLAY_PATH =
   "M8 5v14l11-7z";
 
 const RESTART_PATH =
-  "M12,5V1L7,6L12,11V7A6,6 0 0,1 18,13A6,6 0 0,1 12,19A6,6 0 0,1 6,13H4A8,8 0 0,0 12,21A8,8 0 0,0 20,13A8,8 0 0,0 12,5Z";
+  "M6,18V6H8V18H6M9.5,12L18,6V18L9.5,12Z";
+
+const LIVE_PATH =
+  "M12,9.8A2.2,2.2 0 1,1 12,14.2A2.2,2.2 0 1,1 12,9.8Z M8,7A7,7 0 0,0 8,17Z M16,7A7,7 0 0,1 16,17Z";
 
 const PROGRESS_PATH =
   "M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M10,16.5L16,12L10,7.5V16.5Z";
@@ -898,14 +901,12 @@ class TilosPlayerCard extends HTMLElement {
         .buttons {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
-          gap: 10px;
+          gap: 6px;
         }
 
         .action-button {
-          position: relative;
-          overflow: hidden;
-
-          min-height: 70px;
+          min-width: 0;
+          min-height: 62px;
 
           display: flex;
           align-items: center;
@@ -913,7 +914,7 @@ class TilosPlayerCard extends HTMLElement {
           flex-direction: column;
           gap: 6px;
 
-          padding: 8px 10px;
+          padding: 8px 2px;
 
           border: 1px solid var(--divider-color, #ddd);
           border-radius: 8px;
@@ -958,49 +959,11 @@ class TilosPlayerCard extends HTMLElement {
           color: var(--primary-text-color, #212121);
         }
 
-        .action-button .label {
-          position: absolute;
-          inset: 0;
-
-          display: flex;
-          align-items: center;
-          justify-content: center;
-
-          padding: 4px 6px;
-
-          border-radius: inherit;
-
-          background: var(--card-background-color, #fff);
-          color: inherit;
-
-          font-size: 16px;
-          font-weight: 600;
-          line-height: 1.15;
-          text-align: center;
-
-          opacity: 0;
-
-          pointer-events: none;
-
-          transition: opacity 0.12s ease;
-        }
-
-        @media (hover: hover) {
-          .action-button:hover .label {
-            opacity: 1;
-          }
-        }
-
-        .action-button:focus-visible .label,
-        .action-button:active .label {
-          opacity: 1;
-        }
-
         .icon {
-          width: 44px;
-          height: 44px;
+          width: 40px;
+          height: 40px;
 
-          flex: 0 0 44px;
+          flex: 0 0 40px;
 
           display: inline-flex;
           align-items: center;
@@ -1013,8 +976,8 @@ class TilosPlayerCard extends HTMLElement {
         }
 
         .icon svg {
-          width: 30px;
-          height: 30px;
+          width: 28px;
+          height: 28px;
 
           fill: currentColor;
         }
@@ -1238,13 +1201,14 @@ class TilosPlayerCard extends HTMLElement {
             class="action-button play"
             data-action="play"
             type="button"
+            aria-label="Lejátszás"
+            title="Lejátszás"
           >
             <span class="icon">
               <svg viewBox="0 0 24 24">
                 <path d="${PLAY_PATH}"/>
               </svg>
             </span>
-            <span class="label">Lejátszás</span>
           </button>
 
           <!--
@@ -1259,6 +1223,8 @@ class TilosPlayerCard extends HTMLElement {
             class="action-button restart"
             data-action="restart"
             type="button"
+            aria-label="Előről"
+            title="Előről"
             hidden
           >
             <span class="icon">
@@ -1266,13 +1232,14 @@ class TilosPlayerCard extends HTMLElement {
                 <path d="${RESTART_PATH}"/>
               </svg>
             </span>
-            <span class="label">Előről</span>
           </button>
 
           <button
             class="action-button resume"
             data-action="resume"
             type="button"
+            aria-label="Folytatás"
+            title="Folytatás"
             hidden
           >
             <span class="icon">
@@ -1280,7 +1247,6 @@ class TilosPlayerCard extends HTMLElement {
                 <path d="${PLAY_PATH}"/>
               </svg>
             </span>
-            <span class="label">Folytatás</span>
           </button>
 
           ${
@@ -1290,13 +1256,14 @@ class TilosPlayerCard extends HTMLElement {
             class="action-button queue"
             data-action="queue"
             type="button"
+            aria-label="Sorba"
+            title="Sorba"
           >
             <span class="icon">
               <svg viewBox="0 0 24 24">
                 <path d="${PLAYLIST_ADD_PATH}"/>
               </svg>
             </span>
-            <span class="label">Sorba</span>
           </button>
           `
               : ""
@@ -1306,13 +1273,14 @@ class TilosPlayerCard extends HTMLElement {
             class="action-button live"
             data-action="live"
             type="button"
+            aria-label="Élő adás"
+            title="Élő adás"
           >
             <span class="icon">
               <svg viewBox="0 0 24 24">
-                <path d="M20 7.5v9A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5v-9A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5ZM7 8.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm4 0v3h6v-3h-6Zm-4 5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm4 0v3h6v-3h-6ZM7 2h1v2H7V2Zm4-1h2v-3h-2V1Zm5 1h1v2h-1V2Z"/>
+                <path d="${LIVE_PATH}"/>
               </svg>
             </span>
-            <span class="label">Élő adás</span>
           </button>
         </div>
 
@@ -1692,7 +1660,7 @@ class TilosPlayerCard extends HTMLElement {
       ].filter((button) => !button.hidden).length;
 
     container.style.gridTemplateColumns =
-      `repeat(${visible >= 4 ? 2 : visible}, 1fr)`;
+      `repeat(${visible}, 1fr)`;
   }
 
   _selectedProgress(episodeState) {

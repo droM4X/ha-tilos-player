@@ -1,0 +1,4 @@
+{
+  "reportMissingImports": "none",
+  "extraPaths": ["custom_components/tilos_player"]
+}
