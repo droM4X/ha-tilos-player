@@ -1291,10 +1291,10 @@ class TilosPlayerCard extends HTMLElement {
           >
             <span class="icon">
               <svg viewBox="0 0 24 24">
-                <path class="stroke live-arc" d="M3.35,6.59A10.2,10.2 0 0,0 3.35,17.41"/>
-                <path class="stroke live-arc" d="M6.4,8.5A6.6,6.6 0 0,0 6.4,15.5"/>
-                <path class="stroke live-arc" d="M20.65,6.59A10.2,10.2 0 0,1 20.65,17.41"/>
-                <path class="stroke live-arc" d="M17.6,8.5A6.6,6.6 0 0,1 17.6,15.5"/>
+                <path class="stroke live-arc" d="M2.67,6.17A11,11 0 0,0 2.67,17.83"/>
+                <path class="stroke live-arc" d="M7.08,8.93A5.8,5.8 0 0,0 7.08,15.07"/>
+                <path class="stroke live-arc" d="M21.33,6.17A11,11 0 0,1 21.33,17.83"/>
+                <path class="stroke live-arc" d="M16.92,8.93A5.8,5.8 0 0,1 16.92,15.07"/>
                 <path d="M12,9.8A2.2,2.2 0 1,1 12,14.2A2.2,2.2 0 1,1 12,9.8Z"/>
               </svg>
             </span>
