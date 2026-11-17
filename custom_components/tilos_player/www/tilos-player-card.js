@@ -24,12 +24,18 @@ const BOOKMARK_FILLED_PATH =
   "M17,3H7A2,2 0 0,0 5,5V21L12,18L19,21V5A2,2 0 0,0 17,3Z";
 
 /* Listához adás ikon (Music Assistant mód). */
-const PLAYLIST_ADD_PATH =
-  "M3,15H9V13H3V15M3,19H9V17H3V19M3,11H13V9H3V11M3,7H13V5H3V7M17,11V8H15V11H12V13H15V16H17V13H20V11H17Z";
-
 /* X ikon a link lejátszó mező törléséhez. */
 const CLOSE_PATH =
   "M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z";
+
+const PLAY_PATH =
+  "M8 5v14l11-7z";
+
+const RESTART_PATH =
+  "M6,18V6H8V18H6M9.5,12L18,6V18L9.5,12Z";
+
+const PROGRESS_PATH =
+  "M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M10,16.5L16,12L10,7.5V16.5Z";
 
 const FAVORITES_GROUP_LABEL =
   "Kedvencek";
@@ -61,6 +67,7 @@ const EDITOR_LABELS = {
   integration_type: "Integráció típusa",
   media_player: "Média lejátszó entitás",
   link_player: "Link lejátszó",
+  show_cover: "Borító megjelenítése",
 };
 
 const EDITOR_HELPERS = {
@@ -75,6 +82,10 @@ const EDITOR_HELPERS = {
     "Bekapcsolva az epizódválasztó alatt megjelenik egy mező, ahova közvetlen " +
     "mp3 linket lehet beilleszteni. Lejátszáskor ez elsőbbséget élvez a " +
     "kiválasztott epizóddal szemben.",
+  show_cover:
+    "Bekapcsolva a kártya tetején a most szóló adás borítója látszik a logó " +
+    "helyett, alatta a műsor neve és az epizód címe. Lejátszás nélkül a " +
+    "logó marad.",
 };
 
 /*
@@ -160,6 +171,7 @@ class TilosPlayerCard extends HTMLElement {
     this._openInfo = null;
     /* Az utoljára kirakott panel-tartalom (elkerüli az újraírást). */
     this._renderedInfo = null;
+    this._renderedCover = null;
 
     this._documentPointerDown = null;
     this._boundReposition = null;
@@ -176,6 +188,7 @@ class TilosPlayerCard extends HTMLElement {
       live_entity: "button.tilos_radio_live",
       media_player: "",
       link_player: false,
+      show_cover: false,
       logo: "/api/brands/integration/tilos_player/logo.png",
       ...config,
     };
@@ -240,15 +253,14 @@ class TilosPlayerCard extends HTMLElement {
 
     /*
      * A render új DOM-ot épít, ezért a
-     * leírás tartalmát újra be kell tölteni.
+     * leírás tartalmát és a borító szövegét
+     * újra be kell tölteni.
      */
     this._renderedInfo = null;
+    this._renderedCover = null;
 
     const musicAssistant =
       this._isMusicAssistant();
-
-    const buttonColumns =
-      musicAssistant ? 3 : 2;
 
     this.shadowRoot.innerHTML = `
       <style>
@@ -278,6 +290,39 @@ class TilosPlayerCard extends HTMLElement {
           height: auto;
           margin-bottom: 16px;
           border-radius: 8px;
+        }
+
+        .cover {
+          margin-bottom: 16px;
+        }
+
+        .cover[hidden],
+        .logo[hidden],
+        .cover-image[hidden] {
+          display: none;
+        }
+
+        .cover-image {
+          display: block;
+          width: 100%;
+          height: auto;
+          max-height: 220px;
+          object-fit: cover;
+          border-radius: 8px;
+        }
+
+        .cover-text {
+          margin-top: 10px;
+
+          color: #fff;
+          font-size: 19px;
+          font-weight: 600;
+          line-height: 1.3;
+
+          display: -webkit-box;
+          -webkit-box-orient: vertical;
+          -webkit-line-clamp: 2;
+          overflow: hidden;
         }
 
         .selectors {
@@ -694,6 +739,26 @@ class TilosPlayerCard extends HTMLElement {
           fill: currentColor;
         }
 
+        .dropdown-option-progress {
+          flex: 0 0 auto;
+
+          width: 18px;
+          height: 18px;
+
+          margin-right: 8px;
+
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .dropdown-option-progress svg {
+          width: 16px;
+          height: 16px;
+
+          fill: currentColor;
+        }
+
         .dropdown-option-label {
           flex: 1;
           min-width: 0;
@@ -830,11 +895,12 @@ class TilosPlayerCard extends HTMLElement {
         .buttons {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
-          gap: 10px;
+          gap: 6px;
         }
 
         .action-button {
-          min-height: 76px;
+          min-width: 0;
+          min-height: 62px;
 
           display: flex;
           align-items: center;
@@ -842,7 +908,7 @@ class TilosPlayerCard extends HTMLElement {
           flex-direction: column;
           gap: 6px;
 
-          padding: 8px 10px;
+          padding: 8px 2px;
 
           border: 1px solid var(--divider-color, #ddd);
           border-radius: 8px;
@@ -875,6 +941,10 @@ class TilosPlayerCard extends HTMLElement {
           cursor: default;
         }
 
+        .action-button[hidden] {
+          display: none;
+        }
+
         .action-button.live {
           color: var(--error-color, #db4437);
         }
@@ -884,26 +954,41 @@ class TilosPlayerCard extends HTMLElement {
         }
 
         .icon {
-          width: 32px;
-          height: 32px;
+          width: 40px;
+          height: 40px;
 
-          flex: 0 0 32px;
+          flex: 0 0 40px;
 
           display: inline-flex;
           align-items: center;
           justify-content: center;
 
-          border-radius: 50%;
-
-          background: var(--secondary-background-color, #eeeeee);
           color: inherit;
         }
 
         .icon svg {
-          width: 24px;
-          height: 24px;
+          width: 40px;
+          height: 40px;
 
           fill: currentColor;
+        }
+
+        .icon svg .stroke {
+          fill: none;
+
+          stroke: currentColor;
+          stroke-width: 2.2;
+          stroke-linecap: round;
+          stroke-linejoin: round;
+        }
+
+        .icon svg .stroke.sharp {
+          stroke-linecap: butt;
+          stroke-linejoin: miter;
+        }
+
+        .icon svg .stroke.live-arc {
+          stroke-width: 2;
         }
 
         /*
@@ -991,6 +1076,11 @@ class TilosPlayerCard extends HTMLElement {
       </style>
 
       <ha-card class="card">
+        <div class="cover" hidden>
+          <img class="cover-image" alt="">
+          <div class="cover-text"></div>
+        </div>
+
         <img class="logo" alt="Tilos Rádió">
 
         <div class="selectors">
@@ -1111,10 +1201,63 @@ class TilosPlayerCard extends HTMLElement {
           </div>
         </div>
 
-        <div
-          class="buttons"
-          style="grid-template-columns: repeat(${buttonColumns}, 1fr)"
-        >
+        <!--
+          Az oszlopok száma a látható gombok szerint
+          áll, azt az action-button frissítés állítja.
+        -->
+        <div class="buttons">
+          <button
+            class="action-button play"
+            data-action="play"
+            type="button"
+            aria-label="Lejátszás"
+            title="Lejátszás"
+          >
+            <span class="icon">
+              <svg viewBox="0 0 24 24">
+                <path d="${PLAY_PATH}"/>
+              </svg>
+            </span>
+          </button>
+
+          <!--
+            Folytatható epizód esetén a Lejátszás
+            helyett ez a pár látszik; a frissítés
+            kapcsolgatja a rejtettséget. A DOM
+            sorrendje adja a rács sorrendjét is:
+            négy gombnál ez a kettő kerül az első
+            sorba.
+          -->
+          <button
+            class="action-button restart"
+            data-action="restart"
+            type="button"
+            aria-label="Előről"
+            title="Előről"
+            hidden
+          >
+            <span class="icon">
+              <svg viewBox="0 0 24 24">
+                <path d="${RESTART_PATH}"/>
+              </svg>
+            </span>
+          </button>
+
+          <button
+            class="action-button resume"
+            data-action="resume"
+            type="button"
+            aria-label="Folytatás"
+            title="Folytatás"
+            hidden
+          >
+            <span class="icon">
+              <svg viewBox="0 0 24 24">
+                <path d="${PLAY_PATH}"/>
+              </svg>
+            </span>
+          </button>
+
           ${
             musicAssistant
               ? `
@@ -1122,42 +1265,39 @@ class TilosPlayerCard extends HTMLElement {
             class="action-button queue"
             data-action="queue"
             type="button"
+            aria-label="Sorba"
+            title="Sorba"
           >
             <span class="icon">
               <svg viewBox="0 0 24 24">
-                <path d="${PLAYLIST_ADD_PATH}"/>
+                <path class="stroke sharp" d="M3.5,5H20.5"/>
+                <path class="stroke sharp" d="M3.5,10.5H11"/>
+                <path class="stroke sharp" d="M3.5,14.5H11"/>
+                <path class="stroke sharp" d="M3.5,18.5H11"/>
+                <path class="stroke sharp" d="M15,10L21.5,14.5L15,19Z"/>
               </svg>
             </span>
-            <span>Sorba</span>
           </button>
           `
               : ""
           }
 
           <button
-            class="action-button play"
-            data-action="play"
-            type="button"
-          >
-            <span class="icon">
-              <svg viewBox="0 0 24 24">
-                <path d="M8 5v14l11-7z"/>
-              </svg>
-            </span>
-            <span>Lejátszás</span>
-          </button>
-
-          <button
             class="action-button live"
             data-action="live"
             type="button"
+            aria-label="Élő adás"
+            title="Élő adás"
           >
             <span class="icon">
               <svg viewBox="0 0 24 24">
-                <path d="M20 7.5v9A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5v-9A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5ZM7 8.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm4 0v3h6v-3h-6Zm-4 5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm4 0v3h6v-3h-6ZM7 2h1v2H7V2Zm4-1h2v3h-2V1Zm5 1h1v2h-1V2Z"/>
+                <path class="stroke live-arc" d="M2.67,6.17A11,11 0 0,0 2.67,17.83"/>
+                <path class="stroke live-arc" d="M7.08,8.93A5.8,5.8 0 0,0 7.08,15.07"/>
+                <path class="stroke live-arc" d="M21.33,6.17A11,11 0 0,1 21.33,17.83"/>
+                <path class="stroke live-arc" d="M16.92,8.93A5.8,5.8 0 0,1 16.92,15.07"/>
+                <path d="M12,9.8A2.2,2.2 0 1,1 12,14.2A2.2,2.2 0 1,1 12,9.8Z"/>
               </svg>
             </span>
-            <span>Élő adás</span>
           </button>
         </div>
 
@@ -1327,6 +1467,28 @@ class TilosPlayerCard extends HTMLElement {
               return;
             }
 
+            if (action === "restart") {
+              this._playSource(
+                this._isMusicAssistant()
+                  ? "play"
+                  : undefined,
+                false
+              );
+
+              return;
+            }
+
+            if (action === "resume") {
+              this._playSource(
+                this._isMusicAssistant()
+                  ? "play"
+                  : undefined,
+                true
+              );
+
+              return;
+            }
+
             /*
              * Home Assistant módban a
              * kiválasztott epizód a választott
@@ -1427,17 +1589,18 @@ class TilosPlayerCard extends HTMLElement {
          * illetve a backend runtime állapotától függően
          * unavailable is lehet, miközben a frontendben
          * már megvan az epizód.
+         *
+         * Ugyanezt a feltételt kapja az Előről és a
+         * Folytatás gomb is (a `_playDisabled()`).
          */
         if (action === "play") {
-          button.disabled =
-            !this._targetPlayer() ||
-            this._linkInvalid() ||
-            (
-              this._selectedEpisode === null &&
-              this._linkUrl().length === 0
-            );
+          button.disabled = this._playDisabled();
         }
       });
+
+    this._updateActionButtons(
+      episodeState
+    );
 
     this._updateInfoButtons(
       showState,
@@ -1448,6 +1611,189 @@ class TilosPlayerCard extends HTMLElement {
 
     if (this._openDropdown) {
       this._repositionDropdown();
+    }
+
+    this._updateCover();
+  }
+
+  _playDisabled() {
+    return (
+      !this._targetPlayer() ||
+      this._linkInvalid() ||
+      (
+        this._selectedEpisode === null &&
+        this._linkUrl().length === 0
+      )
+    );
+  }
+
+  _updateActionButtons(episodeState) {
+    const container =
+      this.shadowRoot.querySelector(".buttons");
+
+    if (!container) {
+      return;
+    }
+
+    const resumable =
+      this._selectedProgress(episodeState);
+
+    const disabled = this._playDisabled();
+
+    const play =
+      container.querySelector(
+        '.action-button[data-action="play"]'
+      );
+
+    const restart =
+      container.querySelector(
+        '.action-button[data-action="restart"]'
+      );
+
+    const resume =
+      container.querySelector(
+        '.action-button[data-action="resume"]'
+      );
+
+    if (play) {
+      play.hidden = resumable;
+    }
+
+    if (restart) {
+      restart.hidden = !resumable;
+      restart.disabled = disabled;
+    }
+
+    if (resume) {
+      resume.hidden = !resumable;
+      resume.disabled = disabled;
+    }
+
+    const visible =
+      [
+        ...container.querySelectorAll(
+          ".action-button"
+        )
+      ].filter((button) => !button.hidden).length;
+
+    container.style.gridTemplateColumns =
+      `repeat(${visible}, 1fr)`;
+  }
+
+  _selectedProgress(episodeState) {
+    if (
+      this._selectedEpisode === null ||
+      !episodeState ||
+      String(episodeState.state) !==
+        String(this._selectedEpisode)
+    ) {
+      return false;
+    }
+
+    return (
+      (episodeState.attributes || {}).progress ===
+      true
+    );
+  }
+
+  _playingInfo() {
+    if (!this._hass) {
+      return null;
+    }
+
+    const target =
+      this._targetPlayer();
+
+    if (!target) {
+      return null;
+    }
+
+    const state =
+      this._hass.states[target];
+
+    if (!state) {
+      return null;
+    }
+
+    if (
+      state.state !== "playing" &&
+      state.state !== "paused" &&
+      state.state !== "buffering"
+    ) {
+      return null;
+    }
+
+    const attrs =
+      state.attributes || {};
+
+    const asText = (value) =>
+      typeof value === "string"
+        ? value
+        : "";
+
+    if (!asText(attrs.tilos_key)) {
+      return null;
+    }
+
+    const text =
+      asText(attrs.tilos_display) ||
+      asText(attrs.media_title);
+
+    if (!text) {
+      return null;
+    }
+
+    return {
+      image: asText(attrs.entity_picture),
+      text,
+    };
+  }
+
+  _updateCover() {
+    const cover =
+      this.shadowRoot.querySelector(".cover");
+
+    const logo =
+      this.shadowRoot.querySelector(".logo");
+
+    if (!cover || !logo) {
+      return;
+    }
+
+    const info = this._config.show_cover
+      ? this._playingInfo()
+      : null;
+
+    logo.hidden = Boolean(info);
+    cover.hidden = !info;
+
+    if (!info) {
+      return;
+    }
+
+    const image =
+      cover.querySelector(".cover-image");
+
+    const text =
+      cover.querySelector(".cover-text");
+
+    if (image) {
+      image.hidden = !info.image;
+
+      if (info.image) {
+        const src = info.image.startsWith("/")
+          ? this._hass.hassUrl(info.image)
+          : info.image;
+
+        if (image.getAttribute("src") !== src) {
+          image.setAttribute("src", src);
+        }
+      }
+    }
+
+    if (text && this._renderedCover !== info.text) {
+      text.textContent = info.text;
+      this._renderedCover = info.text;
     }
   }
 
@@ -2117,8 +2463,12 @@ class TilosPlayerCard extends HTMLElement {
    * a backend a music_assistant.play_media
    * szolgáltatást hívja, így az epizód a
    * lejátszási sorba kerül (add/play/...).
+   *
+   * Ha a resume igaz, a backend a mentett
+   * pozícióhoz ugrik; sorba állítva nem
+   * értelmezett.
    */
-  _callTilosPlay(media, enqueue) {
+  _callTilosPlay(media, enqueue, resume) {
     const target = this._targetPlayer();
 
     if (!target) {
@@ -2134,6 +2484,10 @@ class TilosPlayerCard extends HTMLElement {
       data.enqueue = enqueue;
     }
 
+    if (resume) {
+      data.resume = true;
+    }
+
     this._hass.callService(
       "tilos_player",
       "play",
@@ -2145,8 +2499,11 @@ class TilosPlayerCard extends HTMLElement {
    * Lejátszás indítása: ha a link mező ki van
    * töltve (és érvényes), azt küldjük be,
    * különben a kiválasztott epizódot.
+   *
+   * A linknek nincs mentett pozíciója, a resume
+   * ezen az ágon nem értelmezett.
    */
-  _playSource(enqueue) {
+  _playSource(enqueue, resume) {
     const link = this._linkUrl();
 
     if (link) {
@@ -2154,7 +2511,11 @@ class TilosPlayerCard extends HTMLElement {
       return;
     }
 
-    this._callTilosPlay("episode", enqueue);
+    this._callTilosPlay(
+      "episode",
+      enqueue,
+      resume
+    );
   }
 
   /*
@@ -3159,11 +3520,38 @@ class TilosPlayerCard extends HTMLElement {
     );
   }
 
+  _progressLabels() {
+    const labels = new Set();
+
+    const episodeState =
+      this._hass.states[
+        this._config.episode_entity
+      ];
+
+    const episodes =
+      episodeState?.attributes?.episodes;
+
+    if (!Array.isArray(episodes)) {
+      return labels;
+    }
+
+    episodes.forEach((episode) => {
+      if (episode?.progress === true) {
+        labels.add(String(episode.label));
+      }
+    });
+
+    return labels;
+  }
+
   _renderFlatOptions(
     menu,
     options,
     currentValue
   ) {
+    const progressLabels =
+      this._progressLabels();
+
     options.forEach((option) => {
       menu.appendChild(
         this._createOption(
@@ -3176,6 +3564,9 @@ class TilosPlayerCard extends HTMLElement {
                 String(currentValue),
             favorite: null,
             bookmark: false,
+            progress: progressLabels.has(
+              String(option)
+            ),
           }
         )
       );
@@ -3215,6 +3606,14 @@ class TilosPlayerCard extends HTMLElement {
     const favorites =
       this._favoriteIds();
 
+    const progressNames = new Set();
+
+    shows.forEach((show) => {
+      if (show?.progress === true) {
+        progressNames.add(String(show.name));
+      }
+    });
+
     const current =
       currentValue === null
         ? null
@@ -3241,6 +3640,9 @@ class TilosPlayerCard extends HTMLElement {
               SAVED_EPISODES_LABEL,
             favorite: null,
             bookmark: true,
+            progress:
+              showState?.attributes?.saved_progress ===
+              true,
           }
         )
       );
@@ -3310,6 +3712,7 @@ class TilosPlayerCard extends HTMLElement {
                   String(show.id)
                 ),
               bookmark: false,
+              progress: progressNames.has(name),
             }
           )
         );
@@ -3326,11 +3729,16 @@ class TilosPlayerCard extends HTMLElement {
    *
    * A `bookmark` könyvjelző ikonnal jelöli a
    * mentett epizódok belépését.
+   *
+   * A `progress` ikont csak folytatnivaló
+   * pozíciónál kapja a sor, de a slot mindig
+   * bekerül: az üres hely is kell, hogy a
+   * címkék végig egy vonalban maradjanak.
    */
   _createOption(
     value,
     label,
-    { selected, favorite, bookmark }
+    { selected, favorite, bookmark, progress }
   ) {
     const optionButton =
       document.createElement("button");
@@ -3365,6 +3773,20 @@ class TilosPlayerCard extends HTMLElement {
 
       optionButton.appendChild(star);
     }
+
+    const progressSlot =
+      document.createElement("span");
+
+    progressSlot.className =
+      "dropdown-option-progress";
+
+    if (progress === true) {
+      progressSlot.appendChild(
+        this._createIcon(PROGRESS_PATH)
+      );
+    }
+
+    optionButton.appendChild(progressSlot);
 
     const text =
       document.createElement("span");
@@ -3726,6 +4148,12 @@ class TilosPlayerCardEditor extends HTMLElement {
       },
       {
         name: "link_player",
+        selector: {
+          boolean: {},
+        },
+      },
+      {
+        name: "show_cover",
         selector: {
           boolean: {},
         },

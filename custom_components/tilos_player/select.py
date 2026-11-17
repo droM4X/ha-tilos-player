@@ -110,11 +110,25 @@ class TilosShowSelect(CoordinatorEntity, SelectEntity):
         `options` list.
         """
         shows = self._runtime.coordinator.data or []
+        progress = self._runtime.progress
+        progress_names = progress.show_names() if progress is not None else set()
         attrs: dict[str, Any] = {
             "shows": [
-                {"id": str(show.id), "name": show.name, "type": show.type}
+                {
+                    "id": str(show.id),
+                    "name": show.name,
+                    "type": show.type,
+                    "progress": show.name in progress_names,
+                }
                 for show in shows
-            ]
+            ],
+            "saved_progress": bool(
+                progress
+                and progress.has_any(
+                    saved_episode_key(episode)
+                    for episode in self._runtime.saved_episodes.values()
+                )
+            ),
         }
 
         show = self._runtime.selected_show
@@ -139,18 +153,32 @@ class TilosShowSelect(CoordinatorEntity, SelectEntity):
         return bool(self._runtime.coordinator.data)
 
     async def async_added_to_hass(self) -> None:
-        """Subscribe to saved-episode changes (option list depends on it)."""
+        """Subscribe to saved-episode and progress changes."""
         await super().async_added_to_hass()
         self._runtime.saved_episodes_listeners.add(
             self._handle_saved_episodes_changed
         )
+        progress = self._runtime.progress
+        if progress is not None:
+            progress.listeners.add(self._handle_progress_changed)
 
     async def async_will_remove_from_hass(self) -> None:
-        """Unsubscribe from saved-episode changes."""
+        """Unsubscribe from saved-episode and progress changes."""
+        progress = self._runtime.progress
+        if progress is not None:
+            progress.listeners.discard(self._handle_progress_changed)
         self._runtime.saved_episodes_listeners.discard(
             self._handle_saved_episodes_changed
         )
         await super().async_will_remove_from_hass()
+
+    @callback
+    def _handle_progress_changed(self) -> None:
+        """Re-publish the progress flags when one of them flips.
+
+        The tracker announces only a real change, not every poll.
+        """
+        self.async_write_ha_state()
 
     @callback
     def _handle_saved_episodes_changed(self) -> None:
@@ -226,8 +254,7 @@ class TilosEpisodeSelect(SelectEntity):
     _attr_icon = "mdi:playlist-music"
 
     # The HTML description can be several kB and is only needed by the
-    # card in the live state — keep it out of the recorder database.
-    _unrecorded_attributes = frozenset({"description"})
+    _unrecorded_attributes = frozenset({"description", "episodes"})
 
     def __init__(
         self,
@@ -250,18 +277,33 @@ class TilosEpisodeSelect(SelectEntity):
         )
 
     async def async_added_to_hass(self) -> None:
-        """Subscribe to saved-episode changes (they change the list)."""
+        """Subscribe to saved-episode and progress changes."""
         await super().async_added_to_hass()
         self._runtime.saved_episodes_listeners.add(
             self._handle_saved_episodes_changed
         )
+        progress = self._runtime.progress
+        if progress is not None:
+            progress.listeners.add(self._handle_progress_changed)
 
     async def async_will_remove_from_hass(self) -> None:
-        """Unsubscribe from saved-episode changes."""
+        """Unsubscribe from saved-episode and progress changes."""
+        progress = self._runtime.progress
+        if progress is not None:
+            progress.listeners.discard(self._handle_progress_changed)
         self._runtime.saved_episodes_listeners.discard(
             self._handle_saved_episodes_changed
         )
         await super().async_will_remove_from_hass()
+
+    @callback
+    def _handle_progress_changed(self) -> None:
+        """Re-publish when a progress flag flips.
+
+        The tracker announces only a real change, not every poll, so this
+        stays cheap.
+        """
+        self.async_write_ha_state()
 
     @callback
     def _handle_saved_episodes_changed(self) -> None:
@@ -285,15 +327,17 @@ class TilosEpisodeSelect(SelectEntity):
 
         self.async_write_ha_state()
 
-    @property
-    def options(self) -> list[str]:
-        """Episode labels (date + title), newest first.
+    def _labeled_episodes(self) -> list[tuple[str, Episode]]:
+        """Episodes with their option label (date + title), newest first.
 
         Labels must be unique, otherwise the selection would be ambiguous
         — the show name can repeat (two saved episodes of the same show,
         same title), so a counter is appended in that rare case.
+
+        `options`, `current_option` and the `episodes` attribute all read
+        from here, so a label is never computed two ways.
         """
-        labels: list[str] = []
+        labeled: list[tuple[str, Episode]] = []
         seen: dict[str, int] = {}
 
         for episode in self._runtime.episodes:
@@ -305,25 +349,29 @@ class TilosEpisodeSelect(SelectEntity):
             if count > 1:
                 label = f"{label} ({count})"
 
-            labels.append(label)
+            labeled.append((label, episode))
 
-        return labels
+        return labeled
+
+    @property
+    def options(self) -> list[str]:
+        """Episode labels, newest first."""
+        return [label for label, _ in self._labeled_episodes()]
 
     @property
     def current_option(self) -> str | None:
         """Currently selected episode label."""
-        if self._runtime.selected_episode is None:
+        episode = self._runtime.selected_episode
+        if episode is None:
             return None
 
-        options = self.options
+        labels = [label for label, _ in self._labeled_episodes()]
         label = self._selected_label
 
-        if label is not None and label in options:
+        if label is not None and label in labels:
             return label
 
-        return self._episode_label(
-            self._runtime.selected_episode
-        )
+        return self._episode_label(episode)
 
     @property
     def available(self) -> bool:
@@ -342,6 +390,15 @@ class TilosEpisodeSelect(SelectEntity):
         if show is not None and show.id == SAVED_SHOW_ID:
             attrs["saved_list"] = True
 
+        attrs["episodes"] = [
+            {
+                "label": label,
+                "key": saved_episode_key(item),
+                "progress": self._progress_flag(item),
+            }
+            for label, item in self._labeled_episodes()
+        ]
+
         if episode:
             attrs["mp3_url"] = episode.url
             attrs["title"] = episode.title
@@ -350,6 +407,7 @@ class TilosEpisodeSelect(SelectEntity):
             # key of the episode and whether it is saved already.
             attrs["save_key"] = saved_episode_key(episode)
             attrs["saved"] = is_saved_episode(self._runtime, episode)
+            attrs["progress"] = self._progress_flag(episode)
             if episode.show_name:
                 attrs["episode_show"] = episode.show_name
             if episode.description:
@@ -445,6 +503,16 @@ class TilosEpisodeSelect(SelectEntity):
             )
 
         self.async_write_ha_state()
+
+    def _progress_flag(self, episode: Episode) -> bool:
+        """True when this episode has a stored position.
+
+        A missing or empty key means no progress, and a runtime without a
+        tracker reports no progress either.
+        """
+        progress = self._runtime.progress
+        key = saved_episode_key(episode)
+        return bool(key and progress and progress.has(key))
 
     @staticmethod
     def _episode_label(episode: Episode) -> str:

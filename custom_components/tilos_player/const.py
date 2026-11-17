@@ -2,6 +2,8 @@
 
 DOMAIN = "tilos_player"
 
+ACTIVE_PLAYER_STATES = {"playing", "paused", "buffering"}
+
 # API endpoints
 API_BASE = "https://tilos.hu/api"
 SHOWS_URL = f"{API_BASE}/show"
@@ -110,3 +112,4 @@ ATTR_URL = "url"
 # Assistant instead of being played directly (play / add / next / ...).
 ATTR_ENQUEUE = "enqueue"
 ENQUEUE_OPTIONS = ["play", "add", "next", "replace", "replace_next"]
+ATTR_RESUME = "resume"
