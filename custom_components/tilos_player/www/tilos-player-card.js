@@ -31,15 +31,12 @@ const PLAYLIST_ADD_PATH =
 const CLOSE_PATH =
   "M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z";
 
-/* Lejátszás ikon (a Folytatás gomb ugyan ezt használja). */
 const PLAY_PATH =
   "M8 5v14l11-7z";
 
-/* Előről ikon: vissza az epizód elejére. */
 const RESTART_PATH =
   "M12,5V1L7,6L12,11V7A6,6 0 0,1 18,13A6,6 0 0,1 12,19A6,6 0 0,1 6,13H4A8,8 0 0,0 12,21A8,8 0 0,0 20,13A8,8 0 0,0 12,5Z";
 
-/* Folyamatban ikon a listákban (play-circle-outline). */
 const PROGRESS_PATH =
   "M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M10,16.5L16,12L10,7.5V16.5Z";
 
@@ -177,7 +174,6 @@ class TilosPlayerCard extends HTMLElement {
     this._openInfo = null;
     /* Az utoljára kirakott panel-tartalom (elkerüli az újraírást). */
     this._renderedInfo = null;
-    /* Az utoljára kirakott borító-fejléc szövege. */
     this._renderedCover = null;
 
     this._documentPointerDown = null;
@@ -299,12 +295,6 @@ class TilosPlayerCard extends HTMLElement {
           border-radius: 8px;
         }
 
-        /*
-         * Borító fejléc a logó helyett.
-         * A [hidden] szabály kell, mert a képek
-         * display:blockkal vannak, és a [hidden]
-         * mellett nem érvényesül.
-         */
         .cover {
           margin-bottom: 16px;
         }
@@ -324,10 +314,6 @@ class TilosPlayerCard extends HTMLElement {
           border-radius: 8px;
         }
 
-        /*
-         * A fejléc szövege a fekete kártyaháton ül,
-         * ezért a szöveg maga fehér. Maximum két sor.
-         */
         .cover-text {
           margin-top: 10px;
 
@@ -756,11 +742,6 @@ class TilosPlayerCard extends HTMLElement {
           fill: currentColor;
         }
 
-        /*
-         * Folyamatban ikon minden listasorban.
-         * A slot üresen is helyet foglal, hogy a
-         * címkék végig egy vonalban maradjanak.
-         */
         .dropdown-option-progress {
           flex: 0 0 auto;
 
@@ -965,7 +946,6 @@ class TilosPlayerCard extends HTMLElement {
           cursor: default;
         }
 
-        /* A hidden tulajdonság a flex megjelenítést felülírja. */
         .action-button[hidden] {
           display: none;
         }
@@ -978,12 +958,6 @@ class TilosPlayerCard extends HTMLElement {
           color: var(--primary-text-color, #212121);
         }
 
-        /*
-         * A gomb felirata alapból rejtett: a gomb
-         * ikon-központú. Egér rávitele, billentyűs
-         * fókusz vagy érintés alatt a gomb teljes
-         * területét kitöltő rétegen jelenik meg.
-         */
         .action-button .label {
           position: absolute;
           inset: 0;
@@ -1011,11 +985,6 @@ class TilosPlayerCard extends HTMLElement {
           transition: opacity 0.12s ease;
         }
 
-        /*
-         * Csak valódi egérnél használjuk a hover-t;
-         * érintőképernyőn a tap utáni "beragadó"
-         * hover végig láthatóvá tenné a feliratot.
-         */
         @media (hover: hover) {
           .action-button:hover .label {
             opacity: 1;
@@ -1513,12 +1482,6 @@ class TilosPlayerCard extends HTMLElement {
               return;
             }
 
-            /*
-             * Előről: ugyanaz a hívás, mint a
-             * Lejátszásé, de a backend törli a
-             * mentett pozíciót (resume nélkül),
-             * így az epizód az elejéről indul.
-             */
             if (action === "restart") {
               this._playSource(
                 this._isMusicAssistant()
@@ -1530,12 +1493,6 @@ class TilosPlayerCard extends HTMLElement {
               return;
             }
 
-            /*
-             * Folytatás: ugyanaz a hívás, mint a
-             * Lejátszásé, de a mentett pozícióhoz
-             * ugrik. Sorba állítva a resume nem
-             * értelmezett.
-             */
             if (action === "resume") {
               this._playSource(
                 this._isMusicAssistant()
@@ -1674,15 +1631,6 @@ class TilosPlayerCard extends HTMLElement {
     this._updateCover();
   }
 
-  /*
-   * A Lejátszás (és vele az Előről / Folytatás)
-   * engedélyezésének feltétele.
-   *
-   * A gomb entitás állapota nem dönthet a
-   * használhatóságról: a backend "unknown" vagy
-   * "unavailable" állapot is írhat, miközben a
-   * frontendben megvan a kiválasztott epizód.
-   */
   _playDisabled() {
     return (
       !this._targetPlayer() ||
@@ -1694,20 +1642,6 @@ class TilosPlayerCard extends HTMLElement {
     );
   }
 
-  /*
-   * A gombsor: Lejátszás vagy az Előről / Folytatás
-   * pár. A gombok nem épülnek át, csak a
-   * rejtettség és az oszlopok száma áll.
-   *
-   * A rács sorrendje a DOM sorrendje, ezért a
-   * markupban a Lejátszás / Előről / Folytatás
-   * jön előbb, a Sorba utána:
-   *   - 2-3 látható gomb → egy sor,
-   *   - 4 látható gomb (Music Assistant + folytatható
-   *     epizód) → 2x2, az első sorban az Előről és a
-   *     Folytatás, a másodikban a Sorba és az
-   *     Élő adás.
-   */
   _updateActionButtons(episodeState) {
     const container =
       this.shadowRoot.querySelector(".buttons");
@@ -1761,16 +1695,6 @@ class TilosPlayerCard extends HTMLElement {
       `repeat(${visible >= 4 ? 2 : visible}, 1fr)`;
   }
 
-  /*
-   * Folytatható-e a kiválasztott epizód.
-   *
-   * Ugyanaz a védőfeltétel, mint a
-   * `_selectedEpisodeInfo`-nál: az attribútum csak
-   * akkor számít, ha az entitás állapota tényleg a
-   * kártya által kiválasztott epizód; a kattintás
-   * utáni átmeneti időben különben a régi epizód
-   * progress-e jönne.
-   */
   _selectedProgress(episodeState) {
     if (
       this._selectedEpisode === null ||
@@ -1787,21 +1711,6 @@ class TilosPlayerCard extends HTMLElement {
     );
   }
 
-  /*
-   * A most szóló adás fejlécadatai
-   * (borító, szöveg) a céllejátszó
-   * állapotából.
-   *
-   * Csak akkor adjuk vissza, ha a lejátszó
-   * állapota szólásnak számít (playing, paused,
-   * buffering), és az állapot a backend által
-   * jelölt archív epizódot mutatja.
-   *
-   * A szöveg verbatim a backend által írt
-   * tilos_display; csak ha az nincs meg (pl.
-   * indítás után), marad a media_title. Ha az is
-   * üres, nincs mit kirakni, és a logó marad.
-   */
   _playingInfo() {
     if (!this._hass) {
       return null;
@@ -1855,13 +1764,6 @@ class TilosPlayerCard extends HTMLElement {
     };
   }
 
-  /*
-   * Logó vagy borító fejléc.
-   *
-   * A borító csak a show_cover bekapcsolása
-   * mellett látszik; a logó végig a DOM-ban
-   * marad, csak át van rejtve.
-   */
   _updateCover() {
     const cover =
       this.shadowRoot.querySelector(".cover");
@@ -1890,15 +1792,9 @@ class TilosPlayerCard extends HTMLElement {
     const text =
       cover.querySelector(".cover-text");
 
-    /*
-     * Borító nélkül csak a szöveg marad, a kép
-     * ilyenkor rejtve van. Relatív útvonal a
-     * hassUrl-on megy, mint a logó.
-     */
     if (image) {
       image.hidden = !info.image;
 
-      /* Üres képhez nem írunk src-et. */
       if (info.image) {
         const src = info.image.startsWith("/")
           ? this._hass.hassUrl(info.image)
@@ -1910,7 +1806,6 @@ class TilosPlayerCard extends HTMLElement {
       }
     }
 
-    /* API-ból jövő szöveg, csak változáskor írjuk. */
     if (text && this._renderedCover !== info.text) {
       text.textContent = info.text;
       this._renderedCover = info.text;
@@ -3640,12 +3535,6 @@ class TilosPlayerCard extends HTMLElement {
     );
   }
 
-  /*
-   * A címkék halmaza, ahol a backend folytatnivaló
-   * pozíciót jelez. Az epizód select `episodes`
-   * attribútumának label-ei éppen a legördülő
-   * egyedi címkéi, ezek szerint párosítunk.
-   */
   _progressLabels() {
     const labels = new Set();
 
@@ -3732,12 +3621,6 @@ class TilosPlayerCard extends HTMLElement {
     const favorites =
       this._favoriteIds();
 
-    /*
-     * A műsor sorok progress jelölése a shows
-     * attribútum alapján (a show neve szerepel a
-     * progress-tárban). A név-párosítás a backend
-     * shows attribútumának neveivel történik.
-     */
     const progressNames = new Set();
 
     shows.forEach((show) => {

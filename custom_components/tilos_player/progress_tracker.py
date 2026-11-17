@@ -1,14 +1,3 @@
-"""Home Assistant glue for the playback progress book.
-
-The pure model (keys, positions, the resume rules) is in ``progress.py``; this
-module adds the storage, the 30 second poll and the listeners that tell the
-pickers a progress flag has changed.
-
-It imports nothing from the package at runtime — the archive-key resolver, the
-rule that tells our media from a takeover, and the shared runtime data are
-passed in, so ``__init__.py`` can import this module without a circular
-import. Only the types are imported for checking.
-"""
 
 from __future__ import annotations
 
@@ -48,13 +37,10 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-# Keys that are queued through Music Assistant and not playing yet. Bounded,
-# the oldest is dropped — they are only a hint for which playback is ours.
 QUEUED_KEYS_MAX = 200
 
 
 class ProgressTracker:
-    """The stored positions, and which playback was started from here."""
 
     def __init__(
         self,
@@ -64,14 +50,7 @@ class ProgressTracker:
         key_from_state: Callable[[Any], str | None],
         state_is_ours: Callable[[Any, str], bool],
     ) -> None:
-        """Build the tracker for one config entry.
-
-        `state_is_ours` is the package's rule for whether a player state still
-        reports the media we track; the tracker cannot check it itself because
-        the metadata index and the metadata rules live in `__init__.py`.
-        """
         self._hass = hass
-        # Per entry, so two instances don't fight over one file.
         self._store = Store(
             hass,
             PLAYBACK_PROGRESS_VERSION,
@@ -82,21 +61,12 @@ class ProgressTracker:
         self._key_from_state = key_from_state
         self._state_is_ours = state_is_ours
         self.book = ProgressBook()
-        # The pickers re-publish their attributes when a progress flag flips.
         self.listeners: set[Callable[[], None]] = set()
-        # Playback started from this integration: player entity -> archive key.
-        # Both are in-memory only — after a restart we no longer know which
-        # player was ours, only the stored positions survive.
         self._active: dict[str, str] = {}
         self._queued: OrderedDict[str, None] = OrderedDict()
         self._poll_unsub: Callable[[], None] | None = None
 
     async def async_start(self) -> None:
-        """Read the stored positions and start the poll.
-
-        Called before the platforms are set up, so the first render of the
-        card already sees the stored positions.
-        """
         try:
             payload = await self._store.async_load()
         except (OSError, ValueError) as err:
@@ -109,7 +79,6 @@ class ProgressTracker:
         )
 
     async def async_stop(self) -> None:
-        """Stop the poll and write the book out immediately."""
         if self._poll_unsub is not None:
             self._poll_unsub()
             self._poll_unsub = None
@@ -118,14 +87,6 @@ class ProgressTracker:
     async def async_seek_when_ready(
         self, entity_id: str, key: str, position: int
     ) -> None:
-        """Seek to a stored position once this episode is really playing.
-
-        The player reports the archive file only after the media is loaded,
-        and a seek before that would move whatever else is on the player,
-        so first wait for an active state that carries our key. Never
-        raises: when the seek does not take, the playback goes on from the
-        start.
-        """
         if not await self._await_playing_episode(entity_id, key):
             _LOGGER.warning(
                 "Seek to %s s failed on %s: the episode did not start",
@@ -143,18 +104,12 @@ class ProgressTracker:
                     blocking=True,
                 )
             except (HomeAssistantError, TimeoutError) as err:
-                # One transient error is one failed attempt, not the end of the
-                # seek: the remaining attempts still run, and they stay as far
-                # apart as the successful ones.
                 _LOGGER.warning(
                     "Seek to %s s failed on %s: %s", position, entity_id, err
                 )
                 await asyncio.sleep(SEEK_RETRY_DELAY)
                 continue
 
-            # A player writes media_position on its own update cycle, so the
-            # call returning is not yet proof that the seek took. The same
-            # delay is also the gap between the attempts.
             await asyncio.sleep(SEEK_RETRY_DELAY)
 
             if self._seek_accepted(entity_id, position):
@@ -172,14 +127,6 @@ class ProgressTracker:
         _LOGGER.warning("Seek to %s s failed on %s", position, entity_id)
 
     async def _await_playing_episode(self, entity_id: str, key: str) -> bool:
-        """Wait for the player to be active and to report this episode.
-
-        The key is only resolvable while the player still reports the archive
-        URL; our own metadata patch replaces `media_title` a few seconds after
-        the playback starts, so a state that carries the metadata we wrote for
-        this key is accepted as well — otherwise the wait times out on exactly
-        the players whose key can only be read from `media_title`.
-        """
         deadline = time.monotonic() + SEEK_WAIT_TIMEOUT
         while True:
             state = self._hass.states.get(entity_id)
@@ -197,7 +144,6 @@ class ProgressTracker:
             await asyncio.sleep(1)
 
     def _seek_accepted(self, entity_id: str, position: int) -> bool:
-        """True when the player now reports the position we asked for."""
         state = self._hass.states.get(entity_id)
         if state is None:
             return False
@@ -207,63 +153,34 @@ class ProgressTracker:
         return current is not None and abs(current - position) <= SEEK_TOLERANCE
 
     def start_tracking(self, entity_id: str, key: str) -> None:
-        """Remember that the playback started on this player is ours.
-
-        The key is also queued, so a player that reports the archive file
-        only after the first poll (Music Assistant while the file loads) is
-        re-adopted instead of lost.
-        """
         self._active[entity_id] = key
         self.queue_tracking(key)
 
     def queue_tracking(self, key: str) -> None:
-        """Mark a key that is queued and only plays later."""
         self._queued[key] = None
         self._queued.move_to_end(key)
         while len(self._queued) > QUEUED_KEYS_MAX:
             self._queued.popitem(last=False)
 
     def clear(self, key: str) -> None:
-        """Drop a position ("Előről" or a finished episode).
-
-        The entry is gone, so the pickers must see the change right away,
-        and the file must not get the entry back from a later write — a
-        crash just after "Előről" must not bring the position back.
-        """
         if self.book.clear(key):
             self._notify_listeners()
             self._save()
 
     def has(self, key: str) -> bool:
-        """True when this episode has a stored position."""
         return self.book.has(key)
 
     def position(self, key: str) -> int:
-        """Stored position of an episode, 0 when there is none."""
         return self.book.position(key)
 
     def show_names(self) -> set[str]:
-        """The shows that have a stored position."""
         return self.book.show_names()
 
     def has_any(self, keys: Iterable[str]) -> bool:
-        """True when any of these episodes has a stored position."""
         return self.book.has_any(keys)
 
     @callback
     def note_state_change(self, entity_id: str, old_state: Any, new_state: Any) -> None:
-        """Close the tracking when a player we started moved on or stopped.
-
-        A player that is still active but whose key cannot be resolved right
-        now is no signal — our own metadata patch rewrites one of the fields
-        the resolver reads — so the tracking stays open and the poll keeps
-        storing positions. Only stopping or a resolvable other key closes it.
-
-        The last stored position stays: an interrupted show is still
-        resumable. The old state, read the way the poll reads it, is the
-        freshest position we have — by the next poll the player already
-        reports something else.
-        """
         key = self._active.get(entity_id)
         if key is None:
             return
@@ -276,9 +193,6 @@ class ProgressTracker:
         self._active.pop(entity_id, None)
 
         if old_state is not None:
-            # Read the position the way the poll does: the raw `media_position`
-            # is the value the player last wrote, so it can be older than the
-            # position already stored and would move the resume point backwards.
             now = datetime.now(timezone.utc)
             position = effective_position(old_state.attributes, old_state.state, now)
             if position is not None:
@@ -294,7 +208,6 @@ class ProgressTracker:
 
     @callback
     def _async_poll(self, now: datetime) -> None:
-        """Read the position of every watched player once."""
         for entity_id in list(self._runtime.watched_players):
             self._poll_entity(entity_id, now)
 
@@ -302,10 +215,8 @@ class ProgressTracker:
             self._save()
 
     def _poll_entity(self, entity_id: str, now: datetime) -> None:
-        """Handle one watched player: adopt a queued item, read, or close."""
         state = self._hass.states.get(entity_id)
         if state is None:
-            # The entity is gone — nothing left to read on it.
             self._active.pop(entity_id, None)
             return
 
@@ -316,7 +227,6 @@ class ProgressTracker:
         tracked = self._active.get(entity_id)
         if tracked is None:
             if key is not None and key in self._queued:
-                # The queued item started playing — from now on it is ours.
                 self._active[entity_id] = key
                 self._queued.pop(key, None)
                 tracked = key
@@ -324,22 +234,14 @@ class ProgressTracker:
                 return
 
         if state.state not in ACTIVE_PLAYER_STATES:
-            # Out of the active set (idle, off, …) — nothing left to track.
             self._active.pop(entity_id, None)
             return
 
         if key is not None and key != tracked:
-            # A resolvable other key: something else took the player over, and
-            # the entry stays as it is.
             self._active.pop(entity_id, None)
             return
 
         if key is None and not self._state_is_ours(state, tracked):
-            # The key cannot be resolved and the state no longer carries the
-            # metadata we wrote for the tracked episode, so the player has moved
-            # to media we cannot name. When it still matches, this is our own
-            # metadata patch rewriting media_title, not a takeover: the position
-            # can be read without the key, so the tracking stays open.
             self._active.pop(entity_id, None)
             return
 
@@ -353,10 +255,6 @@ class ProgressTracker:
         )
 
         if not should_keep_tracking(recorded, self.book.has(tracked)):
-            # The reading reached the book and the entry is gone: the episode
-            # finished. The close is gated on `recorded` because the first poll
-            # of a fresh playback always reads a position below the resume
-            # minimum, which says nothing and must not drop the tracking.
             self._active.pop(entity_id, None)
 
     def _record(
@@ -367,14 +265,6 @@ class ProgressTracker:
         show_name: str,
         now: datetime,
     ) -> bool:
-        """Store one reading; only a change in the resumable keys is announced.
-
-        A reading that is neither resumable nor finished says nothing about
-        the episode: a ten-second accidental playback must not delete a
-        twenty-minute stored position, so it is not passed to the book. The
-        return value tells the poll whether the reading reached the book at all
-        — without it the poll cannot tell "finished" from "not yet resumable".
-        """
         if not is_resumable(position, duration) and not is_finished(position, duration):
             return False
         if self.book.record(key, position, duration, show_name, now):
@@ -382,22 +272,14 @@ class ProgressTracker:
         return True
 
     def _show_name(self, key: str) -> str:
-        """Show name of a key from the metadata index, empty when unknown."""
         info = self._runtime.media_index.get(key)
         return info.show_name if info is not None else ""
 
     @callback
     def _notify_listeners(self) -> None:
-        """Ask the pickers to re-publish their progress flags."""
         for listener in list(self.listeners):
             listener()
 
     @callback
     def _save(self) -> None:
-        """Schedule writing the book out.
-
-        `async_delay_save` is a callback API; the delayed write runs after the
-        given delay (and the Store flushes on shutdown too), so several polls
-        do not write several files.
-        """
         self._store.async_delay_save(self.book.to_payload, PROGRESS_SAVE_DELAY)

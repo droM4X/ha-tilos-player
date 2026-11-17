@@ -1,4 +1,3 @@
-"""Tests for the pure progress model (no Home Assistant import)."""
 
 from datetime import datetime, timedelta, timezone
 
@@ -15,7 +14,7 @@ from progress import (
 
 KEY = "tilos-20260717-100000-120000"
 KEY2 = "tilos-20260718-100000-120000"
-TS = 1784282400000  # 2026-07-17T10:00:00Z
+TS = 1784282400000
 NOW = datetime(2026, 7, 17, 12, 0, 0, tzinfo=timezone.utc)
 
 
@@ -99,8 +98,6 @@ def test_is_resumable_with_unknown_duration():
 
 
 def test_should_keep_tracking_before_the_first_resumable_reading():
-    # The first poll of a fresh playback reads a position below the minimum:
-    # nothing reaches the book, so the tracking must stay open.
     assert should_keep_tracking(False, False) is True
 
 
@@ -153,8 +150,6 @@ def test_record_returns_false_when_only_the_position_moved():
 def test_record_keeps_a_known_show_name():
     book = ProgressBook()
     book.record(KEY, 120, 4800, "Szabadlábon", NOW)
-    # The tracker has no show name when the key is not in the media index
-    # (e.g. after a restart while the episode keeps playing).
     book.record(KEY, 150, 4800, "", NOW + timedelta(seconds=30))
     assert book.get(KEY).show_name == "Szabadlábon"
 
@@ -268,5 +263,4 @@ def test_from_payload_drops_non_resumable_and_evicts():
     }
     book = ProgressBook.from_payload({"entries": entries})
     assert len(book.to_payload()["entries"]) == PROGRESS_MAX_ENTRIES
-    # The oldest broadcast is the one that goes.
     assert book.has("tilos-20260000-100000-120000") is False

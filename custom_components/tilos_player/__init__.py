@@ -147,11 +147,8 @@ class EpisodeInfo:
     artist: str
     image_url: str
     url: str
-    # The show and the broadcast time are what the card header needs: the
-    # display text is built from these, not from the player's media_artist
-    # (which carries our " // Tilos Rádió" suffix) or media_title.
     show_name: str = ""
-    timestamp: int = 0  # ms epoch of the broadcast
+    timestamp: int = 0
 
 
 @dataclass
@@ -190,8 +187,6 @@ class TilosRuntimeData:
     show_images: dict[str, str] = field(default_factory=dict)
     metadata_state_unsub: Any = None
     metadata_poll_unsub: Any = None
-    # Playback positions (Store-backed) — created in the entry setup, before
-    # the platforms, so the first render already sees the stored progress.
     progress: ProgressTracker | None = None
     # time.monotonic() of the last metadata write, per entity
     last_metadata_write: dict[str, float] = field(default_factory=dict)
@@ -675,7 +670,6 @@ def _patch_player_metadata(
     if state is None:
         return
 
-    # The card header text is built here once; the model owns the format.
     display = format_now_playing(info.show_name, info.title, info.timestamp)
 
     attrs = dict(state.attributes)
@@ -848,8 +842,6 @@ def _start_metadata_watch(hass: HomeAssistant, runtime: TilosRuntimeData) -> Non
         new_state = event.data.get("new_state")
         tracker = runtime.progress
         if tracker is not None:
-            # The old state is the freshest position we have for a player
-            # that stopped or moved on.
             tracker.note_state_change(entity_id, old_state, new_state)
         if new_state is None:
             return
@@ -1169,13 +1161,11 @@ async def play_selected_episode(
 
     tracker = runtime.progress
     position = 0
-    # Only these start the episode now; the others only put it in the queue.
     starts_now = enqueue in (None, "play", "replace")
     if key is not None and tracker is not None:
         if resume and starts_now:
             position = tracker.position(key)
         else:
-            # "Előről", or a queued item: the old position is gone right away.
             tracker.clear(key)
         if starts_now:
             tracker.start_tracking(entity_id, key)
@@ -1197,8 +1187,6 @@ async def play_selected_episode(
         )
         await play_on_music_assistant(hass, entity_id, episode.url, enqueue)
 
-    # A queued item cannot be seeked: it is not playing yet. The seek only
-    # runs once the player really reports this episode.
     if key is not None and tracker is not None and starts_now and position > 0:
         hass.async_create_task(
             tracker.async_seek_when_ready(entity_id, key, position)
@@ -1283,7 +1271,6 @@ PLAY_SERVICE_SCHEMA = vol.Schema(
         # When set, the episode goes through Music Assistant's queue
         # (play / add / next / ...). Without it we play directly.
         vol.Optional(ATTR_ENQUEUE): vol.In(ENQUEUE_OPTIONS),
-        # Start from the stored position of the episode (see the tracker).
         vol.Optional(ATTR_RESUME, default=False): cv.boolean,
     }
 )
@@ -1353,10 +1340,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     entry.runtime_data = runtime
 
-    # The stored positions are read before the platforms, so the pickers and
-    # the card already see them on the first render.
-    # The rule that tells our media from a takeover needs the metadata index,
-    # so it is passed bound to this entry's runtime.
     progress = ProgressTracker(
         hass,
         entry.entry_id,

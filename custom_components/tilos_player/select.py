@@ -122,8 +122,6 @@ class TilosShowSelect(CoordinatorEntity, SelectEntity):
                 }
                 for show in shows
             ],
-            # Any saved episode has a stored position: the card offers
-            # Folytatás in the saved list.
             "saved_progress": bool(
                 progress
                 and progress.has_any(
@@ -256,8 +254,6 @@ class TilosEpisodeSelect(SelectEntity):
     _attr_icon = "mdi:playlist-music"
 
     # The HTML description can be several kB and is only needed by the
-    # card in the live state — keep it out of the recorder database. The
-    # labelled episode list is a few kB for the same reason.
     _unrecorded_attributes = frozenset({"description", "episodes"})
 
     def __init__(
@@ -411,8 +407,6 @@ class TilosEpisodeSelect(SelectEntity):
             # key of the episode and whether it is saved already.
             attrs["save_key"] = saved_episode_key(episode)
             attrs["saved"] = is_saved_episode(self._runtime, episode)
-            # Whether this episode has a stored position (the card offers
-            # Folytatás on it).
             attrs["progress"] = self._progress_flag(episode)
             if episode.show_name:
                 attrs["episode_show"] = episode.show_name
