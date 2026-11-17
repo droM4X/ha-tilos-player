@@ -24,9 +24,6 @@ const BOOKMARK_FILLED_PATH =
   "M17,3H7A2,2 0 0,0 5,5V21L12,18L19,21V5A2,2 0 0,0 17,3Z";
 
 /* Listához adás ikon (Music Assistant mód). */
-const PLAYLIST_ADD_PATH =
-  "M3,15H9V13H3V15M3,19H9V17H3V19M3,11H13V9H3V11M3,7H13V5H3V7M17,11V8H15V11H12V13H15V16H17V13H20V11H17Z";
-
 /* X ikon a link lejátszó mező törléséhez. */
 const CLOSE_PATH =
   "M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z";
@@ -36,9 +33,6 @@ const PLAY_PATH =
 
 const RESTART_PATH =
   "M6,18V6H8V18H6M9.5,12L18,6V18L9.5,12Z";
-
-const LIVE_PATH =
-  "M12,9.8A2.2,2.2 0 1,1 12,14.2A2.2,2.2 0 1,1 12,9.8Z M8,7A7,7 0 0,0 8,17Z M16,7A7,7 0 0,1 16,17Z";
 
 const PROGRESS_PATH =
   "M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M10,16.5L16,12L10,7.5V16.5Z";
@@ -969,17 +963,23 @@ class TilosPlayerCard extends HTMLElement {
           align-items: center;
           justify-content: center;
 
-          border-radius: 50%;
-
-          background: var(--secondary-background-color, #eeeeee);
           color: inherit;
         }
 
         .icon svg {
-          width: 28px;
-          height: 28px;
+          width: 40px;
+          height: 40px;
 
           fill: currentColor;
+        }
+
+        .icon svg .stroke {
+          fill: none;
+
+          stroke: currentColor;
+          stroke-width: 2.2;
+          stroke-linecap: round;
+          stroke-linejoin: round;
         }
 
         /*
@@ -1261,7 +1261,11 @@ class TilosPlayerCard extends HTMLElement {
           >
             <span class="icon">
               <svg viewBox="0 0 24 24">
-                <path d="${PLAYLIST_ADD_PATH}"/>
+                <path class="stroke" d="M3.5,5H20.5"/>
+                <path class="stroke" d="M3.5,10.5H11"/>
+                <path class="stroke" d="M3.5,14.5H11"/>
+                <path class="stroke" d="M3.5,18.5H11"/>
+                <path class="stroke" d="M15,10L21.5,14.5L15,19Z"/>
               </svg>
             </span>
           </button>
@@ -1278,7 +1282,11 @@ class TilosPlayerCard extends HTMLElement {
           >
             <span class="icon">
               <svg viewBox="0 0 24 24">
-                <path d="${LIVE_PATH}"/>
+                <path class="stroke" d="M6.5,6.2A8,8 0 0,0 6.5,17.8"/>
+                <path class="stroke" d="M9.4,8.6A5,5 0 0,0 9.4,15.4"/>
+                <path class="stroke" d="M17.5,6.2A8,8 0 0,1 17.5,17.8"/>
+                <path class="stroke" d="M14.6,8.6A5,5 0 0,1 14.6,15.4"/>
+                <path d="M12,9.4A2.6,2.6 0 1,1 12,14.6A2.6,2.6 0 1,1 12,9.4Z"/>
               </svg>
             </span>
           </button>
