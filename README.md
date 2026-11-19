@@ -14,11 +14,8 @@ A Tilos Rádió archívumából közvetlen lejátszás a Home Assistantban a meg
 - Műsorleírás megjelenítése (műsor infó gomb) és epizód műsorleírás / tracklista megjelenítése
 - Közvetlen mp3 link lejátszása (opcionális)
 - Lejátszó lista támogatása (csak Music Assistant esetén)
-- Borító megjelenítése a kártya tetején (kapcsolható, `show_info`, alapból bekapcsolt): archív epizód lejátszásakor a borító és a `Műsor – Cím (dátum)` sor van a fejlécben, máskor a logó marad
-- Élő adás alatt a logó alatt az éppen szóló előadó és cím, `Tilos ÉLŐ / előadó – cím` alakban (a lejátszó `media_artist` / `media_title` mezőiből, a stream metaadatából)
-- Az Élő gomb pulzál, amíg a Tilos rádió élő adása szól a beállított lejátszón: a gomb háttere a világos alapszínről halvány vörösre vált (sötét témán is látszik), a mozgékonyság-csökkentés mellett végig halvány vörös
-- Aktív lejátszás alatt a Lejátszás gomb **Leállítás** gombbal váltódik fel (négyzet ikon), ami `media_player.media_stop`-pal leállítja a lejátszást; a félbehagyott epizód pozíciója megmarad, utána az Előről / Folytatás pár jön elő. Archív adás lejátszása alatt az **Előről** is ott marad a Stop mellett, hogy vissza lehessen ugrani az elejére; az élő adásnak nincs eleje, ott nem jön elő
-- Folytatható lejátszás: a félbehagyott archív adás a mentett pozícióról indul vissza — félpercenként mentjük a pozíciót, a listákban ikon jelzi, ahol van ilyen, az epizód kiválasztásakor a Lejátszás gomb helyett **Előről** / **Folytatás** pár van
+- Borító megjelenítése a kártya tetején
+- Folytatható lejátszás: a félbehagyott archív adás a mentett pozícióról indul vissza
 - HACS-ból is telepíthető, egyedi integrációként, így később tud frissülni.
 - Saját Lovelace kártya vizuális (interaktív) szerkesztővel és YAML móddal.
 
@@ -49,27 +46,10 @@ A Tilos Rádió archívumából közvetlen lejátszás a Home Assistantban a meg
   - **Integráció típusa**: Home Assistant vagy Music Assistant
   - **Média lejátszó entitás**: ezen a lejátszón futnak a kártya gombjai
   - **Link lejátszó**: közvetlen mp3 lejátszás vagy várólistára adás linkről
-  - **Adásinfó megjelenítése** (`show_info`): opcionális, alapból `true` — a kártya tetején az éppen szóló adás infója látszik: archív epizód borítója és a `Műsor – Cím (dátum)` sor a logó helyett (szünet alatt is megmarad). A régi `show_cover` beállítás működik tovább, ha a `show_info` nincs megadva.
+  - **Adásinfó megjelenítése** a kártya tetején az éppen szóló adás infója látszik
 - A műsorlista induláskor és 12 óránként automatikusan frissül.
 - Műsor választás, lejátszás.
 - Örvendezés a remek muzsikáknak :)
-
-### Epizód mentése későbbre
-Az archív epizódlista csak a beállított időablakban (alapból 4 hónap) lévő epizódokat mutatja, de a lejátszható mp3-k nem tűnnek el. Az info gomb megnyomásakor a lenyíló rész első sora egy gomb:
-
-- **Mentés későbbre** – elmenti az epizódot minden adatával együtt (cím, leírás/tracklista, műsor neve, borító, mp3 link). Mentés után a sor felirata **Eltávolítás a mentettek közül** lesz, amivel vissza is lehet venni.
-- Amíg van mentett epizód, a **Műsor** legördülő legelső eleme a **Mentett epizódok** (könyvjelző ikonnal). Kiválasztásakor az **Epizód** legördülő csak a mentett epizódokat listázza — a műsor nevével együtt, a legfrissebb elöl —, és onnan a szokásos Lejátszás / Sorba gombokkal indítható.
-
-A mentett lista a `sensor.tilos_radio_saved_episodes` entitásban van (állapota a darabszám), a mentett epizódok adatai pedig fájlban, így újraindítás után is megmaradnak. Automatizáláshoz a `tilos_player.save_episode` / `tilos_player.remove_saved_episode` szolgáltatások használhatók (az epizód select `save_key` attribútumában lévő kulccsal, vagy üresen a kiválasztott epizódra).
-
-### Folytatható lejátszás
-
-A pozíció a `.storage/tilos_player_progress_<entry_id>` fájlban van, így újraindítás után is megmarad. Félpercenként (30 másodpercenként) mérjük a lejátszó pozícióját, és csak folytatásra érdemes pozíciót tartunk meg: egy végigjátszott adás bejegyzése törlődik, egy félbehagyott viszont folytatás marad.
-
-- Csak az ezen a kártyán indított epizódokhoz tartozik mentett pozíció (a mentett epizódok is), az élő adás és a link lejátszó soha.
-- A kártyán az **Előről** gomb viszi az epizód elejére (a bejegyzést törli), a **Folytatás** a mentett pozícióról indul. Az ikon a műsor- és epizódsorban jelzi, hogy mely epizódhoz van mentett pozíció.
-- Automatizáláshoz a `tilos_player.play` `resume: true` mezővel hívható ugyanez (a `url`/`live` mediákra és a csak sorba adott epizódra nem vonatkozik).
-- A fejléc és az epizódsor ugyanazt az UTC dátum-formátumot használja (`YYYY.MM.DD.`), a zóna beállításától függetlenül.
 
 ### Minimális kézi config
 ```
@@ -81,4 +61,4 @@ show_info: true                       # adásinfó a fejlécben (opciók: true|f
 ```
 
 ---
-<small>Disclaimer: Csak egy lelkes hallgatói megoldás, semmilyen kapcsolatban nem voltam/vagyok a rádióval, nem volt semmi ráhatásuk erre a projectre. Természetesen nagy nyelvi modellekkel (ami továbbra sem ai) készült (DS 4.1 Flash, GPT 5.6 Luna, GLM 5.3 Flash). Korábban összeraktam ezt sh scriptekkel és egyéb patkolásokkal, ez az átírat arra alapul, hogy könnyebben megosztható legyen.</small>
+<small>Disclaimer: Csak egy lelkes hallgatói megoldás, semmilyen kapcsolatban nem voltam/vagyok a rádióval, nem volt semmi ráhatásuk erre a projectre. Természetesen nagy nyelvi modellekkel (ami továbbra sem ai) készült (DS 4.1 Flash, GPT 5.6 Luna, GLM 5.3 Flash és lokális Strata-ban Qwen 3.8 Flash Next). Korábban összeraktam ezt sh scriptekkel és egyéb patkolásokkal, ez az átírat arra alapul, hogy könnyebben megosztható legyen.</small>
