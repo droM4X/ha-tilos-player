@@ -31,6 +31,9 @@ const CLOSE_PATH =
 const PLAY_PATH =
   "M8 5v14l11-7z";
 
+const STOP_PATH =
+  "M7.5,7.5H16.5V16.5H7.5Z";
+
 const RESTART_PATH =
   "M6,18V6H8V18H6M9.5,12L18,6V18L9.5,12Z";
 
@@ -186,6 +189,21 @@ function liveHeaderInfo(state, logoUrl) {
   return {
     image: logoUrl,
     text,
+  };
+}
+
+/*
+ * Az első gomb slotjának tartalma: aktív lejátszás
+ * alatt a Stop veszi át a Lejátszást (és a folytatási
+ * párt is), különben a Lejátszás, folytatáshoz
+ * epizódnál pedig az Előről / Folytatás pár.
+ */
+function slotVisibility(active, resumable) {
+  return {
+    play: !active && !resumable,
+    restart: !active && resumable,
+    resume: !active && resumable,
+    stop: active,
   };
 }
 
@@ -1358,6 +1376,26 @@ class TilosPlayerCard extends HTMLElement {
           </button>
 
           <!--
+            Aktív lejátszás alatt a Lejátszás helyett
+            ez áll: a céllejátszót állítja le a
+            media_player.media_stop szolgáltatással.
+          -->
+          <button
+            class="action-button stop"
+            data-action="stop"
+            type="button"
+            aria-label="Leállítás"
+            title="Leállítás"
+            hidden
+          >
+            <span class="icon">
+              <svg viewBox="0 0 24 24">
+                <path d="${STOP_PATH}"/>
+              </svg>
+            </span>
+          </button>
+
+          <!--
             Folytatható epizód esetén a Lejátszás
             helyett ez a pár látszik; a frissítés
             kapcsolgatja a rejtettséget. A DOM
@@ -1764,6 +1802,50 @@ class TilosPlayerCard extends HTMLElement {
     );
   }
 
+  /*
+   * Szól-e valami a céllejátszón: a Stop gomb
+   * és a slot-szabály ezt nézi.
+   */
+  _playerActive() {
+    const target =
+      this._targetPlayer();
+
+    const state = target
+      ? this._hass.states[target]
+      : null;
+
+    if (!state) {
+      return false;
+    }
+
+    return (
+      state.state === "playing" ||
+      state.state === "buffering"
+    );
+  }
+
+  /*
+   * Leállítás: a céllejátszó lejátszását
+   * állítjuk le, a lejátszó entitás marad.
+   * A félbehagyott epizód pozíciója megmarad.
+   */
+  _stopPlayer() {
+    const target =
+      this._targetPlayer();
+
+    if (!target) {
+      return;
+    }
+
+    this._hass.callService(
+      "media_player",
+      "media_stop",
+      {
+        entity_id: target,
+      }
+    );
+  }
+
   _updateActionButtons(episodeState) {
     const container =
       this.shadowRoot.querySelector(".buttons");
@@ -1777,9 +1859,20 @@ class TilosPlayerCard extends HTMLElement {
 
     const disabled = this._playDisabled();
 
+    const slots =
+      slotVisibility(
+        this._playerActive(),
+        resumable
+      );
+
     const play =
       container.querySelector(
         '.action-button[data-action="play"]'
+      );
+
+    const stop =
+      container.querySelector(
+        '.action-button[data-action="stop"]'
       );
 
     const restart =
@@ -1793,16 +1886,21 @@ class TilosPlayerCard extends HTMLElement {
       );
 
     if (play) {
-      play.hidden = resumable;
+      play.hidden = !slots.play;
+    }
+
+    if (stop) {
+      stop.hidden = !slots.stop;
+      stop.disabled = !this._targetPlayer();
     }
 
     if (restart) {
-      restart.hidden = !resumable;
+      restart.hidden = !slots.restart;
       restart.disabled = disabled;
     }
 
     if (resume) {
-      resume.hidden = !resumable;
+      resume.hidden = !slots.resume;
       resume.disabled = disabled;
     }
 
