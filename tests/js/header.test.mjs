@@ -90,6 +90,41 @@ test("élő szöveg: csak előadó / csak cím / egyik sincs", () => {
   assert.equal(card.liveHeaderText("  ", null), "");
 });
 
+test("élő adás felismerés: playing + stream.tilos.hu → true", () => {
+  assert.equal(
+    card.isLiveRadio({
+      state: "playing",
+      attributes: {
+        media_content_id: "https://stream.tilos.hu/tilos",
+      },
+    }),
+    true,
+  );
+});
+
+test("élő adás felismerés: szünet, más forrás, nincs state → false", () => {
+  assert.equal(
+    card.isLiveRadio({
+      state: "paused",
+      attributes: {
+        media_content_id: "https://stream.tilos.hu/tilos",
+      },
+    }),
+    false,
+  );
+  assert.equal(
+    card.isLiveRadio({
+      state: "playing",
+      attributes: {
+        media_content_id: "https://example.com/tilos-hangnema.mp3",
+      },
+    }),
+    false,
+  );
+  assert.equal(card.isLiveRadio(null), false);
+  assert.equal(card.isLiveRadio({ state: "playing" }), false);
+});
+
 test("élő fejléc: nincs szöveg → null (marad a sima logó)", () => {
   assert.equal(
     card.liveHeaderInfo(

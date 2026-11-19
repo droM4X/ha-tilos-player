@@ -146,13 +146,12 @@ function liveHeaderText(artist, title) {
 }
 
 /*
- * Élő Tilos adás fejléc-infója: a logó marad a kép,
- * alatta az előadó és a cím. Nem playing, vagy nem
- * Tilos tartalom esetén nincs fejléc.
+ * Élő Tilos adás szól-e a megadott lejátszón?
+ * A fejléc és az Élő gomb jele is ezt nézi.
  */
-function liveHeaderInfo(state, logoUrl) {
+function isLiveRadio(state) {
   if (!state || state.state !== "playing") {
-    return null;
+    return false;
   }
 
   const contentId =
@@ -161,7 +160,16 @@ function liveHeaderInfo(state, logoUrl) {
         ""
     ).toLowerCase();
 
-  if (!contentId.includes(LIVE_STREAM_HOST)) {
+  return contentId.includes(LIVE_STREAM_HOST);
+}
+
+/*
+ * Élő Tilos adás fejléc-infója: a logó marad a kép,
+ * alatta az előadó és a cím. Nem playing, vagy nem
+ * Tilos tartalom esetén nincs fejléc.
+ */
+function liveHeaderInfo(state, logoUrl) {
+  if (!isLiveRadio(state)) {
     return null;
   }
 
@@ -1053,6 +1061,31 @@ class TilosPlayerCard extends HTMLElement {
           color: var(--error-color, #db4437);
         }
 
+        /*
+         * Ha élő adás szól, a gomb halványan pulzál.
+         * Az ikon piros marad, csak a háttér változik.
+         */
+        .action-button.live.live-active {
+          animation: tilos-live-pulse 1.8s ease-in-out infinite;
+        }
+
+        @keyframes tilos-live-pulse {
+          0%,
+          100% {
+            background-color: rgba(219, 68, 55, 0.10);
+          }
+          50% {
+            background-color: rgba(219, 68, 55, 0.26);
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .action-button.live.live-active {
+            animation: none;
+            background-color: rgba(219, 68, 55, 0.16);
+          }
+        }
+
         .action-button.play {
           color: var(--primary-text-color, #212121);
         }
@@ -1773,6 +1806,21 @@ class TilosPlayerCard extends HTMLElement {
       resume.disabled = disabled;
     }
 
+    /*
+     * Az Élő gomb jele: élő Tilos adás szól-e.
+     */
+    const live =
+      container.querySelector(
+        '.action-button[data-action="live"]'
+      );
+
+    if (live) {
+      live.classList.toggle(
+        "live-active",
+        this._liveRadioState() !== null
+      );
+    }
+
     const visible =
       [
         ...container.querySelectorAll(
@@ -1866,17 +1914,7 @@ class TilosPlayerCard extends HTMLElement {
       ? this._hass.states[target]
       : null;
 
-    if (!state || state.state !== "playing") {
-      return null;
-    }
-
-    const contentId =
-      String(
-        (state.attributes || {})
-          .media_content_id || ""
-      ).toLowerCase();
-
-    return contentId.includes(LIVE_STREAM_HOST)
+    return isLiveRadio(state)
       ? state
       : null;
   }
