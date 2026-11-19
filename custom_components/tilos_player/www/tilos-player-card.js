@@ -31,6 +31,9 @@ const CLOSE_PATH =
 const PLAY_PATH =
   "M8 5v14l11-7z";
 
+const STOP_PATH =
+  "M7.5,7.5H16.5V16.5H7.5Z";
+
 const RESTART_PATH =
   "M6,18V6H8V18H6M9.5,12L18,6V18L9.5,12Z";
 
@@ -67,7 +70,7 @@ const EDITOR_LABELS = {
   integration_type: "Integráció típusa",
   media_player: "Média lejátszó entitás",
   link_player: "Link lejátszó",
-  show_cover: "Borító megjelenítése",
+  show_info: "Adásinfó megjelenítése",
 };
 
 const EDITOR_HELPERS = {
@@ -82,11 +85,154 @@ const EDITOR_HELPERS = {
     "Bekapcsolva az epizódválasztó alatt megjelenik egy mező, ahova közvetlen " +
     "mp3 linket lehet beilleszteni. Lejátszáskor ez elsőbbséget élvez a " +
     "kiválasztott epizóddal szemben.",
-  show_cover:
-    "Bekapcsolva a kártya tetején a most szóló adás borítója látszik a logó " +
-    "helyett, alatta a műsor neve és az epizód címe. Lejátszás nélkül a " +
-    "logó marad.",
+  show_info:
+    "Bekapcsolva a kártya tetején az éppen szóló adás infója látszik: " +
+    "archív epizódborító a logó helyett, élő adásnál a logó alatt az " +
+    "előadó és a cím. Kikapcsolva mindig a sima logó marad.",
 };
+
+/*
+ * Az élő adás felismeréséhez: a lejátszó
+ * media_content_id-jében ez a host szerepel.
+ */
+const LIVE_STREAM_HOST =
+  "stream.tilos.hu";
+
+/*
+ * Az élő adás fejléc-szövegének eleje.
+ */
+const LIVE_HEADER_PREFIX =
+  "Tilos ÉLŐ / ";
+
+/*
+ * Az adásinfó kapcsolója. A régi kártya-beállításokban
+ * ez `show_cover` volt, és alapból ki volt kapcsolva:
+ * aki explicit beállította, annak az értéke marad.
+ */
+function resolveShowInfo(config) {
+  if (config.show_info !== undefined) {
+    return Boolean(config.show_info);
+  }
+
+  if (config.show_cover !== undefined) {
+    return Boolean(config.show_cover);
+  }
+
+  return true;
+}
+
+/*
+ * Az editor a teljes configot adja vissza; a régi
+ * `show_cover` kulcsot töröljük, hogy ne maradjon
+ * ellentétes érték a YAML-ban.
+ */
+function editorConfig(value) {
+  const config = { ...value };
+
+  delete config.show_cover;
+
+  /*
+   * A feloldott ertek kerul be a mentett configba:
+   * igy egy regi `show_cover: false` kartya nem
+   * kapja vissza a fejlécet puszta szerkesztesre.
+   */
+  config.show_info =
+    resolveShowInfo(value);
+
+  return config;
+}
+
+/*
+ * Élő adás fejléc-szövege: az előadó és a cím,
+ * a hiányzó feleket kihagyva.
+ */
+function liveHeaderText(artist, title) {
+  const parts =
+    [
+      artist,
+      title,
+    ].filter(
+      (value) =>
+        typeof value === "string" &&
+        value.trim().length > 0
+    );
+
+  return parts
+    .map((value) => value.trim())
+    .join(" – ");
+}
+
+/*
+ * Élő Tilos adás szól-e a megadott lejátszón?
+ * A fejléc és az Élő gomb jele is ezt nézi.
+ */
+function isLiveRadio(state) {
+  if (!state || state.state !== "playing") {
+    return false;
+  }
+
+  const contentId =
+    String(
+      (state.attributes || {}).media_content_id ||
+        ""
+    ).toLowerCase();
+
+  return contentId.includes(LIVE_STREAM_HOST);
+}
+
+/*
+ * Élő Tilos adás fejléc-infója: a logó marad a kép,
+ * alatta az előadó és a cím. Nem playing, vagy nem
+ * Tilos tartalom esetén nincs fejléc.
+ */
+function liveHeaderInfo(state, logoUrl) {
+  if (!isLiveRadio(state)) {
+    return null;
+  }
+
+  const text =
+    liveHeaderText(
+      state.attributes?.media_artist,
+      state.attributes?.media_title
+    );
+
+  if (!text) {
+    return null;
+  }
+
+  return {
+    image: logoUrl,
+    text: `${LIVE_HEADER_PREFIX}${text}`,
+  };
+}
+
+/*
+ * Az első gomb slotjának tartalma:
+ *
+ * playing: a céllejátszón valami szól (playing vagy
+ * buffering); archivePlaying: ez archív Tilos-adás,
+ * nem az élő stream; resumable: a kiválasztott
+ * epizódhoz van mentett pozíció.
+ *
+ * Lejátszás alatt a Stop veszi át a Lejátszást, és
+ * archív adásnál mellé az Előről is oda kerül, hogy
+ * vissza lehessen ugrani az elejére. Élő adásnál az
+ * Előről nem jön elő, mert nincs eleje.
+ */
+function slotVisibility(
+  playing,
+  resumable,
+  archivePlaying
+) {
+  const pair = !playing && resumable;
+
+  return {
+    play: !playing && !resumable,
+    restart: pair || archivePlaying,
+    resume: pair,
+    stop: playing,
+  };
+}
 
 /*
  * Közvetlen link lejátszás: csak .mp3-ra végződő URL fogadható el.
@@ -188,10 +334,12 @@ class TilosPlayerCard extends HTMLElement {
       live_entity: "button.tilos_radio_live",
       media_player: "",
       link_player: false,
-      show_cover: false,
       logo: "/api/brands/integration/tilos_player/logo.png",
       ...config,
     };
+
+    this._config.show_info =
+      resolveShowInfo(config);
 
     this._render();
   }
@@ -262,6 +410,7 @@ class TilosPlayerCard extends HTMLElement {
     const musicAssistant =
       this._isMusicAssistant();
 
+    // pi-lens-ignore: no-inner-html-js -- statikus sablon: csak ikon-utvonal konstansok, kivalasztott capcok feltetelei es a kartya sajat entitas-azonositoi kerulnek bele; minden idegen szoveg (muzor-, epizodiumcím, leírás, kep-URL) textContent /setAttribute men, igy nincs behatololasi felulet. A ~1100 soros render atirasa a mostani kereten tul menne.
     this.shadowRoot.innerHTML = `
       <style>
         :host {
@@ -309,6 +458,15 @@ class TilosPlayerCard extends HTMLElement {
           max-height: 220px;
           object-fit: cover;
           border-radius: 8px;
+        }
+
+        /*
+         * Élő adásnál a logó a kép: ne vágja le
+         * a borítóra szánt max-magasság.
+         */
+        .cover[data-kind="live"] .cover-image {
+          max-height: none;
+          object-fit: contain;
         }
 
         .cover-text {
@@ -949,6 +1107,33 @@ class TilosPlayerCard extends HTMLElement {
           color: var(--error-color, #db4437);
         }
 
+        /*
+         * Ha élő adás szól, a gomb háttérre a
+         * világos alapszínből megy át halvány
+         * vörösesbe: a sötét témán is látszik.
+         * Az ikon piros marad.
+         */
+        .action-button.live.live-active {
+          animation: tilos-live-pulse 1.8s ease-in-out infinite;
+        }
+
+        @keyframes tilos-live-pulse {
+          0%,
+          100% {
+            background-color: #f2f2f2;
+          }
+          50% {
+            background-color: #d68a80;
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .action-button.live.live-active {
+            animation: none;
+            background-color: #d68a80;
+          }
+        }
+
         .action-button.play {
           color: var(--primary-text-color, #212121);
         }
@@ -1206,27 +1391,11 @@ class TilosPlayerCard extends HTMLElement {
           áll, azt az action-button frissítés állítja.
         -->
         <div class="buttons">
-          <button
-            class="action-button play"
-            data-action="play"
-            type="button"
-            aria-label="Lejátszás"
-            title="Lejátszás"
-          >
-            <span class="icon">
-              <svg viewBox="0 0 24 24">
-                <path d="${PLAY_PATH}"/>
-              </svg>
-            </span>
-          </button>
-
           <!--
-            Folytatható epizód esetén a Lejátszás
-            helyett ez a pár látszik; a frissítés
-            kapcsolgatja a rejtettséget. A DOM
-            sorrendje adja a rács sorrendjét is:
-            négy gombnál ez a kettő kerül az első
-            sorba.
+            Ha az Előről megjelenik, mindig az első
+            slotban van: folytatásnál a Folytatás
+            elé, lejátszás alatt a Stop elé. A DOM
+            sorrendje adja a rács sorrendjét.
           -->
           <button
             class="action-button restart"
@@ -1243,6 +1412,47 @@ class TilosPlayerCard extends HTMLElement {
             </span>
           </button>
 
+          <button
+            class="action-button play"
+            data-action="play"
+            type="button"
+            aria-label="Lejátszás"
+            title="Lejátszás"
+          >
+            <span class="icon">
+              <svg viewBox="0 0 24 24">
+                <path d="${PLAY_PATH}"/>
+              </svg>
+            </span>
+          </button>
+
+          <!--
+            Aktív lejátszás alatt a Lejátszás helyett
+            ez áll: a céllejátszót állítja le a
+            media_player.media_stop szolgáltatással.
+          -->
+          <button
+            class="action-button stop"
+            data-action="stop"
+            type="button"
+            aria-label="Leállítás"
+            title="Leállítás"
+            hidden
+          >
+            <span class="icon">
+              <svg viewBox="0 0 24 24">
+                <path d="${STOP_PATH}"/>
+              </svg>
+            </span>
+          </button>
+
+          <!--
+            Folytatható epizód esetén a Lejátszás
+            helyett ez a pár látszik; a frissítés
+            kapcsolgatja a rejtettséget. Az Előről
+            feljebb van a DOM-ban, igy mindig elöl
+            marad.
+          -->
           <button
             class="action-button resume"
             data-action="resume"
@@ -1457,6 +1667,17 @@ class TilosPlayerCard extends HTMLElement {
             }
 
             /*
+             * Aktív lejátszás leállítása a
+             * céllejátszón: a Stop gomb a
+             * Lejátszás slotjaban van.
+             */
+            if (action === "stop") {
+              this._stopPlayer();
+
+              return;
+            }
+
+            /*
              * Élő adás: a tilos_player.play
              * szolgáltatás játssza le a
              * választott lejátszón.
@@ -1627,6 +1848,62 @@ class TilosPlayerCard extends HTMLElement {
     );
   }
 
+  /*
+   * Szól-e valami a céllejátszón: a Stop gomb
+   * és a slot-szabály ezt nézi.
+   */
+  _playerActive() {
+    const target =
+      this._targetPlayer();
+
+    const state = target
+      ? this._hass.states[target]
+      : null;
+
+    if (!state) {
+      return false;
+    }
+
+    return (
+      state.state === "playing" ||
+      state.state === "buffering"
+    );
+  }
+
+  /*
+   * Leállítás: a céllejátszó lejátszását
+   * állítjuk le, a lejátszó entitás marad.
+   * A félbehagyott epizód pozíciója megmarad.
+   */
+  _stopPlayer() {
+    const target =
+      this._targetPlayer();
+
+    if (!target) {
+      return;
+    }
+
+    this._hass.callService(
+      "media_player",
+      "media_stop",
+      {
+        entity_id: target,
+      }
+    );
+  }
+
+  /*
+   * Archív Tilos-adás szól-e épp a céllejátszón:
+   * a backend `tilos_key` jelölője alapján. Az élő
+   * streamre ilyen jelölő nincs.
+   */
+  _archivePlaying() {
+    return (
+      this._playerActive() &&
+      this._playingInfo() !== null
+    );
+  }
+
   _updateActionButtons(episodeState) {
     const container =
       this.shadowRoot.querySelector(".buttons");
@@ -1640,9 +1917,21 @@ class TilosPlayerCard extends HTMLElement {
 
     const disabled = this._playDisabled();
 
+    const slots =
+      slotVisibility(
+        this._playerActive(),
+        resumable,
+        this._archivePlaying()
+      );
+
     const play =
       container.querySelector(
         '.action-button[data-action="play"]'
+      );
+
+    const stop =
+      container.querySelector(
+        '.action-button[data-action="stop"]'
       );
 
     const restart =
@@ -1656,17 +1945,37 @@ class TilosPlayerCard extends HTMLElement {
       );
 
     if (play) {
-      play.hidden = resumable;
+      play.hidden = !slots.play;
+    }
+
+    if (stop) {
+      stop.hidden = !slots.stop;
+      stop.disabled = !this._targetPlayer();
     }
 
     if (restart) {
-      restart.hidden = !resumable;
+      restart.hidden = !slots.restart;
       restart.disabled = disabled;
     }
 
     if (resume) {
-      resume.hidden = !resumable;
+      resume.hidden = !slots.resume;
       resume.disabled = disabled;
+    }
+
+    /*
+     * Az Élő gomb jele: élő Tilos adás szól-e.
+     */
+    const live =
+      container.querySelector(
+        '.action-button[data-action="live"]'
+      );
+
+    if (live) {
+      live.classList.toggle(
+        "live-active",
+        this._liveRadioState() !== null
+      );
     }
 
     const visible =
@@ -1749,6 +2058,63 @@ class TilosPlayerCard extends HTMLElement {
     };
   }
 
+  /*
+   * Az a céllejátszó state-je, ha élő Tilos
+   * adás szól rajta; különben null. A fejléc
+   * és az Élő gomb jele is ebből indul.
+   */
+  _liveRadioState() {
+    const target =
+      this._targetPlayer();
+
+    const state = target
+      ? this._hass.states[target]
+      : null;
+
+    return isLiveRadio(state)
+      ? state
+      : null;
+  }
+
+  _liveHeaderInfo() {
+    return liveHeaderInfo(
+      this._liveRadioState(),
+      this._config.logo
+    );
+  }
+
+  /*
+   * A fejléc tartalma: először az archív epizód
+   * (a backend által írt metaadatokból), ha nincs
+   * ilyen, akkor az élő adás a lejátszó saját
+   * media_artist / media_title mezőiből.
+   */
+  _headerInfo() {
+    if (!this._config.show_info) {
+      return null;
+    }
+
+    const archive =
+      this._playingInfo();
+
+    if (archive) {
+      return {
+        ...archive,
+        kind: "archive",
+      };
+    }
+
+    const live =
+      this._liveHeaderInfo();
+
+    return live
+      ? {
+          ...live,
+          kind: "live",
+        }
+      : null;
+  }
+
   _updateCover() {
     const cover =
       this.shadowRoot.querySelector(".cover");
@@ -1760,12 +2126,16 @@ class TilosPlayerCard extends HTMLElement {
       return;
     }
 
-    const info = this._config.show_cover
-      ? this._playingInfo()
-      : null;
+    const info =
+      this._headerInfo();
 
     logo.hidden = Boolean(info);
     cover.hidden = !info;
+
+    cover.setAttribute(
+      "data-kind",
+      info ? info.kind : ""
+    );
 
     if (!info) {
       return;
@@ -4093,7 +4463,9 @@ class TilosPlayerCardEditor extends HTMLElement {
               "config-changed",
               {
                 detail: {
-                  config: event.detail.value,
+                  config: editorConfig(
+                    event.detail.value
+                  ),
                 },
                 bubbles: true,
                 composed: true,
@@ -4107,7 +4479,17 @@ class TilosPlayerCardEditor extends HTMLElement {
     }
 
     this._form.hass = this._hass;
-    this._form.data = this._config;
+
+    /*
+     * A kapcsolo a feloldott erteket mutatja,
+     * igy latszik a regi `show_cover` ertke is.
+     */
+    this._form.data = {
+      ...this._config,
+      show_info:
+        resolveShowInfo(this._config),
+    };
+
     this._form.schema = this._schema();
 
     this._form.computeLabel = (schema) =>
@@ -4153,7 +4535,7 @@ class TilosPlayerCardEditor extends HTMLElement {
         },
       },
       {
-        name: "show_cover",
+        name: "show_info",
         selector: {
           boolean: {},
         },
