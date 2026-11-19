@@ -14,7 +14,7 @@ A Tilos Rádió archívumából közvetlen lejátszás a Home Assistantban a meg
 - Műsorleírás megjelenítése (műsor infó gomb) és epizód műsorleírás / tracklista megjelenítése
 - Közvetlen mp3 link lejátszása (opcionális)
 - Lejátszó lista támogatása (csak Music Assistant esetén)
-- Borító megjelenítése a kártya tetején (kapcsolható, `show_cover`, alapból kikapcsolt): archív epizód lejátszásakor a borító és a `Műsor – Cím (dátum)` sor van a fejlécben, máskor a logó marad
+- Borító megjelenítése a kártya tetején (kapcsolható, `show_info`, alapból bekapcsolt): archív epizód lejátszásakor a borító és a `Műsor – Cím (dátum)` sor van a fejlécben, máskor a logó marad
 - Folytatható lejátszás: a félbehagyott archív adás a mentett pozícióról indul vissza — félpercenként mentjük a pozíciót, a listákban ikon jelzi, ahol van ilyen, az epizód kiválasztásakor a Lejátszás gomb helyett **Előről** / **Folytatás** pár van
 - HACS-ból is telepíthető, egyedi integrációként, így később tud frissülni.
 - Saját Lovelace kártya vizuális (interaktív) szerkesztővel és YAML móddal.
@@ -46,7 +46,7 @@ A Tilos Rádió archívumából közvetlen lejátszás a Home Assistantban a meg
   - **Integráció típusa**: Home Assistant vagy Music Assistant
   - **Média lejátszó entitás**: ezen a lejátszón futnak a kártya gombjai
   - **Link lejátszó**: közvetlen mp3 lejátszás vagy várólistára adás linkről
-  - **Borító megjelenítése** (`show_cover`): opcionális, alapból `false` — a kártya tetején az éppen lejátszott archív epizód borítója és a `Műsor – Cím (dátum)` sor látszik a logó helyett (szünet alatt is megmarad)
+  - **Adásinfó megjelenítése** (`show_info`): opcionális, alapból `true` — a kártya tetején az éppen szóló adás infója látszik: archív epizód borítója és a `Műsor – Cím (dátum)` sor a logó helyett (szünet alatt is megmarad). A régi `show_cover` beállítás működik tovább, ha a `show_info` nincs megadva.
 - A műsorlista induláskor és 12 óránként automatikusan frissül.
 - Műsor választás, lejátszás.
 - Örvendezés a remek muzsikáknak :)
@@ -74,6 +74,7 @@ type: custom:tilos-player-card
 media_player: media_player.lejatszo   # a lejátszásra használt media_player entitás
 integration_type: home_assistant      # integráció típusa (opciók: home_assistant|music_assistant)
 link_player: false                    # link lejátszó megjelenítése (opciók: true|false)
+show_info: true                       # adásinfó a fejlécben (opciók: true|false)
 ```
 
 ---

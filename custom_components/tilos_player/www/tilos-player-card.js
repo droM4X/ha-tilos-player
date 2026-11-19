@@ -67,7 +67,7 @@ const EDITOR_LABELS = {
   integration_type: "Integráció típusa",
   media_player: "Média lejátszó entitás",
   link_player: "Link lejátszó",
-  show_cover: "Borító megjelenítése",
+  show_info: "Adásinfó megjelenítése",
 };
 
 const EDITOR_HELPERS = {
@@ -82,11 +82,41 @@ const EDITOR_HELPERS = {
     "Bekapcsolva az epizódválasztó alatt megjelenik egy mező, ahova közvetlen " +
     "mp3 linket lehet beilleszteni. Lejátszáskor ez elsőbbséget élvez a " +
     "kiválasztott epizóddal szemben.",
-  show_cover:
-    "Bekapcsolva a kártya tetején a most szóló adás borítója látszik a logó " +
-    "helyett, alatta a műsor neve és az epizód címe. Lejátszás nélkül a " +
-    "logó marad.",
+  show_info:
+    "Bekapcsolva a kártya tetején az éppen szóló adás infója látszik: " +
+    "archív epizódborító a logó helyett, élő adásnál a logó alatt az " +
+    "előadó és a cím. Kikapcsolva mindig a sima logó marad.",
 };
+
+/*
+ * Az adásinfó kapcsolója. A régi kártya-beállításokban
+ * ez `show_cover` volt, és alapból ki volt kapcsolva:
+ * aki explicit beállította, annak az értéke marad.
+ */
+function resolveShowInfo(config) {
+  if (config.show_info !== undefined) {
+    return Boolean(config.show_info);
+  }
+
+  if (config.show_cover !== undefined) {
+    return Boolean(config.show_cover);
+  }
+
+  return true;
+}
+
+/*
+ * Az editor a teljes configot adja vissza; a régi
+ * `show_cover` kulcsot töröljük, hogy ne maradjon
+ * ellentétes érték a YAML-ban.
+ */
+function editorConfig(value) {
+  const config = { ...value };
+
+  delete config.show_cover;
+
+  return config;
+}
 
 /*
  * Közvetlen link lejátszás: csak .mp3-ra végződő URL fogadható el.
@@ -188,10 +218,12 @@ class TilosPlayerCard extends HTMLElement {
       live_entity: "button.tilos_radio_live",
       media_player: "",
       link_player: false,
-      show_cover: false,
       logo: "/api/brands/integration/tilos_player/logo.png",
       ...config,
     };
+
+    this._config.show_info =
+      resolveShowInfo(config);
 
     this._render();
   }
@@ -1760,7 +1792,7 @@ class TilosPlayerCard extends HTMLElement {
       return;
     }
 
-    const info = this._config.show_cover
+    const info = this._config.show_info
       ? this._playingInfo()
       : null;
 
@@ -4093,7 +4125,9 @@ class TilosPlayerCardEditor extends HTMLElement {
               "config-changed",
               {
                 detail: {
-                  config: event.detail.value,
+                  config: editorConfig(
+                    event.detail.value
+                  ),
                 },
                 bubbles: true,
                 composed: true,
@@ -4153,7 +4187,7 @@ class TilosPlayerCardEditor extends HTMLElement {
         },
       },
       {
-        name: "show_cover",
+        name: "show_info",
         selector: {
           boolean: {},
         },
