@@ -24,3 +24,24 @@ test("minden data-action gombhoz van click ag", () => {
     );
   }
 });
+
+/*
+ * A lathato gombok sorrendjet a sablon DOM sorrendje
+ * adja: ha az Elorol megjelenik, mindig o jon eloszor.
+ */
+test("Előről gomb a Lejátszás és a Stop slot elé kerül", () => {
+  const at = (action) =>
+    source.indexOf(`data-action="${action}"`);
+
+  assert.ok(at("restart") !== -1, "nincs Előről gomb");
+
+  assert.ok(
+    at("restart") < at("play"),
+    "az Előről a Lejátszás slot elé kerüljön",
+  );
+
+  assert.ok(
+    at("restart") < at("stop"),
+    "az Előről a Stop slot elé kerüljön",
+  );
+});

@@ -1391,6 +1391,27 @@ class TilosPlayerCard extends HTMLElement {
           áll, azt az action-button frissítés állítja.
         -->
         <div class="buttons">
+          <!--
+            Ha az Előről megjelenik, mindig az első
+            slotban van: folytatásnál a Folytatás
+            elé, lejátszás alatt a Stop elé. A DOM
+            sorrendje adja a rács sorrendjét.
+          -->
+          <button
+            class="action-button restart"
+            data-action="restart"
+            type="button"
+            aria-label="Előről"
+            title="Előről"
+            hidden
+          >
+            <span class="icon">
+              <svg viewBox="0 0 24 24">
+                <path d="${RESTART_PATH}"/>
+              </svg>
+            </span>
+          </button>
+
           <button
             class="action-button play"
             data-action="play"
@@ -1428,26 +1449,10 @@ class TilosPlayerCard extends HTMLElement {
           <!--
             Folytatható epizód esetén a Lejátszás
             helyett ez a pár látszik; a frissítés
-            kapcsolgatja a rejtettséget. A DOM
-            sorrendje adja a rács sorrendjét is:
-            négy gombnál ez a kettő kerül az első
-            sorba.
+            kapcsolgatja a rejtettséget. Az Előről
+            feljebb van a DOM-ban, igy mindig elöl
+            marad.
           -->
-          <button
-            class="action-button restart"
-            data-action="restart"
-            type="button"
-            aria-label="Előről"
-            title="Előről"
-            hidden
-          >
-            <span class="icon">
-              <svg viewBox="0 0 24 24">
-                <path d="${RESTART_PATH}"/>
-              </svg>
-            </span>
-          </button>
-
           <button
             class="action-button resume"
             data-action="resume"
