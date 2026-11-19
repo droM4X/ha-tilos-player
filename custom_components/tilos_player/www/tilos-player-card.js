@@ -125,6 +125,14 @@ function editorConfig(value) {
 
   delete config.show_cover;
 
+  /*
+   * A feloldott ertek kerul be a mentett configba:
+   * igy egy regi `show_cover: false` kartya nem
+   * kapja vissza a fejlécet puszta szerkesztesre.
+   */
+  config.show_info =
+    resolveShowInfo(value);
+
   return config;
 }
 
@@ -383,6 +391,7 @@ class TilosPlayerCard extends HTMLElement {
     const musicAssistant =
       this._isMusicAssistant();
 
+    // pi-lens-ignore: no-inner-html-js -- statikus sablon: csak ikon-utvonal konstansok, kivalasztott capcok feltetelei es a kartya sajat entitas-azonositoi kerulnek bele; minden idegen szoveg (muzor-, epizodiumcím, leírás, kep-URL) textContent /setAttribute men, igy nincs behatololasi felulet. A ~1100 soros render atirasa a mostani kereten tul menne.
     this.shadowRoot.innerHTML = `
       <style>
         :host {
@@ -1627,6 +1636,17 @@ class TilosPlayerCard extends HTMLElement {
               this._isMusicAssistant()
             ) {
               this._playSource("play");
+
+              return;
+            }
+
+            /*
+             * Aktív lejátszás leállítása a
+             * céllejátszón: a Stop gomb a
+             * Lejátszás slotjaban van.
+             */
+            if (action === "stop") {
+              this._stopPlayer();
 
               return;
             }
@@ -4420,7 +4440,17 @@ class TilosPlayerCardEditor extends HTMLElement {
     }
 
     this._form.hass = this._hass;
-    this._form.data = this._config;
+
+    /*
+     * A kapcsolo a feloldott erteket mutatja,
+     * igy latszik a regi `show_cover` ertke is.
+     */
+    this._form.data = {
+      ...this._config,
+      show_info:
+        resolveShowInfo(this._config),
+    };
+
     this._form.schema = this._schema();
 
     this._form.computeLabel = (schema) =>

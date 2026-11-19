@@ -11,6 +11,10 @@ const CARD_URL = new URL(
  * deklarációk a globálra kerülnek, az osztálydeklarációk nem.
  * A browser-stubok elégnek ahhoz, hogy a fájl betöltsön.
  */
+export function loadCardSource() {
+  return readFileSync(CARD_URL, "utf8");
+}
+
 export function loadCard() {
   const context = vm.createContext({
     customElements: {

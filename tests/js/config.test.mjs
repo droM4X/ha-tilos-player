@@ -22,6 +22,15 @@ test("show_info: a régi show_cover csak hiányban dönt", () => {
   );
 });
 
+test("show_info: az editor a feloldott értéket írja, nem törli a régit üresen", () => {
+  const config = card.editorConfig({
+    show_cover: false,
+  });
+
+  assert.deepEqual(Object.keys(config), ["show_info"]);
+  assert.equal(config.show_info, false);
+});
+
 test("show_info: az editor törli a régi show_cover kulcsot", () => {
   const config = card.editorConfig({
     show_cover: false,
