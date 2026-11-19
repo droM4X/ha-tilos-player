@@ -15,6 +15,7 @@ A Tilos Rádió archívumából közvetlen lejátszás a Home Assistantban a meg
 - Közvetlen mp3 link lejátszása (opcionális)
 - Lejátszó lista támogatása (csak Music Assistant esetén)
 - Borító megjelenítése a kártya tetején (kapcsolható, `show_info`, alapból bekapcsolt): archív epizód lejátszásakor a borító és a `Műsor – Cím (dátum)` sor van a fejlécben, máskor a logó marad
+- Élő adás alatt a logó alatt az éppen szóló előadó és cím (a lejátszó `media_artist` / `media_title` mezőiből, a stream metaadatából)
 - Folytatható lejátszás: a félbehagyott archív adás a mentett pozícióról indul vissza — félpercenként mentjük a pozíciót, a listákban ikon jelzi, ahol van ilyen, az epizód kiválasztásakor a Lejátszás gomb helyett **Előről** / **Folytatás** pár van
 - HACS-ból is telepíthető, egyedi integrációként, így később tud frissülni.
 - Saját Lovelace kártya vizuális (interaktív) szerkesztővel és YAML móddal.

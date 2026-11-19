@@ -89,6 +89,13 @@ const EDITOR_HELPERS = {
 };
 
 /*
+ * Az élő adás felismeréséhez: a lejátszó
+ * media_content_id-jében ez a host szerepel.
+ */
+const LIVE_STREAM_HOST =
+  "stream.tilos.hu";
+
+/*
  * Az adásinfó kapcsolója. A régi kártya-beállításokban
  * ez `show_cover` volt, és alapból ki volt kapcsolva:
  * aki explicit beállította, annak az értéke marad.
@@ -116,6 +123,62 @@ function editorConfig(value) {
   delete config.show_cover;
 
   return config;
+}
+
+/*
+ * Élő adás fejléc-szövege: az előadó és a cím,
+ * a hiányzó feleket kihagyva.
+ */
+function liveHeaderText(artist, title) {
+  const parts =
+    [
+      artist,
+      title,
+    ].filter(
+      (value) =>
+        typeof value === "string" &&
+        value.trim().length > 0
+    );
+
+  return parts
+    .map((value) => value.trim())
+    .join(" – ");
+}
+
+/*
+ * Élő Tilos adás fejléc-infója: a logó marad a kép,
+ * alatta az előadó és a cím. Nem playing, vagy nem
+ * Tilos tartalom esetén nincs fejléc.
+ */
+function liveHeaderInfo(state, logoUrl) {
+  if (!state || state.state !== "playing") {
+    return null;
+  }
+
+  const contentId =
+    String(
+      (state.attributes || {}).media_content_id ||
+        ""
+    ).toLowerCase();
+
+  if (!contentId.includes(LIVE_STREAM_HOST)) {
+    return null;
+  }
+
+  const text =
+    liveHeaderText(
+      state.attributes?.media_artist,
+      state.attributes?.media_title
+    );
+
+  if (!text) {
+    return null;
+  }
+
+  return {
+    image: logoUrl,
+    text,
+  };
 }
 
 /*
@@ -341,6 +404,15 @@ class TilosPlayerCard extends HTMLElement {
           max-height: 220px;
           object-fit: cover;
           border-radius: 8px;
+        }
+
+        /*
+         * Élő adásnál a logó a kép: ne vágja le
+         * a borítóra szánt max-magasság.
+         */
+        .cover[data-kind="live"] .cover-image {
+          max-height: none;
+          object-fit: contain;
         }
 
         .cover-text {
@@ -1781,6 +1853,73 @@ class TilosPlayerCard extends HTMLElement {
     };
   }
 
+  /*
+   * Az a céllejátszó state-je, ha élő Tilos
+   * adás szól rajta; különben null. A fejléc
+   * és az Élő gomb jele is ebből indul.
+   */
+  _liveRadioState() {
+    const target =
+      this._targetPlayer();
+
+    const state = target
+      ? this._hass.states[target]
+      : null;
+
+    if (!state || state.state !== "playing") {
+      return null;
+    }
+
+    const contentId =
+      String(
+        (state.attributes || {})
+          .media_content_id || ""
+      ).toLowerCase();
+
+    return contentId.includes(LIVE_STREAM_HOST)
+      ? state
+      : null;
+  }
+
+  _liveHeaderInfo() {
+    return liveHeaderInfo(
+      this._liveRadioState(),
+      this._config.logo
+    );
+  }
+
+  /*
+   * A fejléc tartalma: először az archív epizód
+   * (a backend által írt metaadatokból), ha nincs
+   * ilyen, akkor az élő adás a lejátszó saját
+   * media_artist / media_title mezőiből.
+   */
+  _headerInfo() {
+    if (!this._config.show_info) {
+      return null;
+    }
+
+    const archive =
+      this._playingInfo();
+
+    if (archive) {
+      return {
+        ...archive,
+        kind: "archive",
+      };
+    }
+
+    const live =
+      this._liveHeaderInfo();
+
+    return live
+      ? {
+          ...live,
+          kind: "live",
+        }
+      : null;
+  }
+
   _updateCover() {
     const cover =
       this.shadowRoot.querySelector(".cover");
@@ -1792,12 +1931,16 @@ class TilosPlayerCard extends HTMLElement {
       return;
     }
 
-    const info = this._config.show_info
-      ? this._playingInfo()
-      : null;
+    const info =
+      this._headerInfo();
 
     logo.hidden = Boolean(info);
     cover.hidden = !info;
+
+    cover.setAttribute(
+      "data-kind",
+      info ? info.kind : ""
+    );
 
     if (!info) {
       return;
