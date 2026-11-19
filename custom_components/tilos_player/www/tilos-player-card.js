@@ -99,6 +99,12 @@ const LIVE_STREAM_HOST =
   "stream.tilos.hu";
 
 /*
+ * Az élő adás fejléc-szövegének eleje.
+ */
+const LIVE_HEADER_PREFIX =
+  "Tilos ÉLŐ / ";
+
+/*
  * Az adásinfó kapcsolója. A régi kártya-beállításokban
  * ez `show_cover` volt, és alapból ki volt kapcsolva:
  * aki explicit beállította, annak az értéke marad.
@@ -196,22 +202,35 @@ function liveHeaderInfo(state, logoUrl) {
 
   return {
     image: logoUrl,
-    text,
+    text: `${LIVE_HEADER_PREFIX}${text}`,
   };
 }
 
 /*
- * Az első gomb slotjának tartalma: aktív lejátszás
- * alatt a Stop veszi át a Lejátszást (és a folytatási
- * párt is), különben a Lejátszás, folytatáshoz
- * epizódnál pedig az Előről / Folytatás pár.
+ * Az első gomb slotjának tartalma:
+ *
+ * playing: a céllejátszón valami szól (playing vagy
+ * buffering); archivePlaying: ez archív Tilos-adás,
+ * nem az élő stream; resumable: a kiválasztott
+ * epizódhoz van mentett pozíció.
+ *
+ * Lejátszás alatt a Stop veszi át a Lejátszást, és
+ * archív adásnál mellé az Előről is oda kerül, hogy
+ * vissza lehessen ugrani az elejére. Élő adásnál az
+ * Előről nem jön elő, mert nincs eleje.
  */
-function slotVisibility(active, resumable) {
+function slotVisibility(
+  playing,
+  resumable,
+  archivePlaying
+) {
+  const pair = !playing && resumable;
+
   return {
-    play: !active && !resumable,
-    restart: !active && resumable,
-    resume: !active && resumable,
-    stop: active,
+    play: !playing && !resumable,
+    restart: pair || archivePlaying,
+    resume: pair,
+    stop: playing,
   };
 }
 
@@ -1089,8 +1108,10 @@ class TilosPlayerCard extends HTMLElement {
         }
 
         /*
-         * Ha élő adás szól, a gomb halványan pulzál.
-         * Az ikon piros marad, csak a háttér változik.
+         * Ha élő adás szól, a gomb háttérre a
+         * világos alapszínből megy át halvány
+         * vörösesbe: a sötét témán is látszik.
+         * Az ikon piros marad.
          */
         .action-button.live.live-active {
           animation: tilos-live-pulse 1.8s ease-in-out infinite;
@@ -1099,17 +1120,17 @@ class TilosPlayerCard extends HTMLElement {
         @keyframes tilos-live-pulse {
           0%,
           100% {
-            background-color: rgba(219, 68, 55, 0.10);
+            background-color: #f2f2f2;
           }
           50% {
-            background-color: rgba(219, 68, 55, 0.26);
+            background-color: #d68a80;
           }
         }
 
         @media (prefers-reduced-motion: reduce) {
           .action-button.live.live-active {
             animation: none;
-            background-color: rgba(219, 68, 55, 0.16);
+            background-color: #d68a80;
           }
         }
 
@@ -1866,6 +1887,18 @@ class TilosPlayerCard extends HTMLElement {
     );
   }
 
+  /*
+   * Archív Tilos-adás szól-e épp a céllejátszón:
+   * a backend `tilos_key` jelölője alapján. Az élő
+   * streamre ilyen jelölő nincs.
+   */
+  _archivePlaying() {
+    return (
+      this._playerActive() &&
+      this._playingInfo() !== null
+    );
+  }
+
   _updateActionButtons(episodeState) {
     const container =
       this.shadowRoot.querySelector(".buttons");
@@ -1882,7 +1915,8 @@ class TilosPlayerCard extends HTMLElement {
     const slots =
       slotVisibility(
         this._playerActive(),
-        resumable
+        resumable,
+        this._archivePlaying()
       );
 
     const play =

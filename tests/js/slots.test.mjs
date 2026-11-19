@@ -20,8 +20,8 @@ const assertSlots = (actual, expected) => {
   }
 };
 
-test("slot: nincs aktív lejátszás, nincs mentett pozíció → csak play", () => {
-  assertSlots(card.slotVisibility(false, false), {
+test("slot: nincs lejátszás, nincs mentett pozíció → csak play", () => {
+  assertSlots(card.slotVisibility(false, false, false), {
     play: true,
     restart: false,
     resume: false,
@@ -29,8 +29,8 @@ test("slot: nincs aktív lejátszás, nincs mentett pozíció → csak play", ()
   });
 });
 
-test("slot: mentett pozíció → előről + folytatás", () => {
-  assertSlots(card.slotVisibility(false, true), {
+test("slot: mentett pozíció, nincs lejátszás → előről + folytatás", () => {
+  assertSlots(card.slotVisibility(false, true, false), {
     play: false,
     restart: true,
     resume: true,
@@ -38,17 +38,33 @@ test("slot: mentett pozíció → előről + folytatás", () => {
   });
 });
 
-test("slot: aktív lejátszás → stop váltja ki a playt és a párt", () => {
-  assertSlots(card.slotVisibility(true, false), {
+test("slot: aktív lejátszás, nem archív (élő) → csak stop", () => {
+  assertSlots(card.slotVisibility(true, false, false), {
     play: false,
     restart: false,
     resume: false,
     stop: true,
   });
 
-  assertSlots(card.slotVisibility(true, true), {
+  assertSlots(card.slotVisibility(true, true, false), {
     play: false,
     restart: false,
+    resume: false,
+    stop: true,
+  });
+});
+
+test("slot: archív lejátszás → előről és stop", () => {
+  assertSlots(card.slotVisibility(true, false, true), {
+    play: false,
+    restart: true,
+    resume: false,
+    stop: true,
+  });
+
+  assertSlots(card.slotVisibility(true, true, true), {
+    play: false,
+    restart: true,
     resume: false,
     stop: true,
   });

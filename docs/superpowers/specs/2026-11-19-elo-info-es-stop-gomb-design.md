@@ -141,3 +141,28 @@ stop nem igényel backend flush-t.
 - A kártya JS-re nincs teszt-harness (a `tests/` Python-only), a
   ellenőrzés: `node --check`, `pytest`, `ruff check` + manuális kipróbálás
   a HA-ban.
+
+## Kézi próba utáni módosítások
+
+Az első éles kipróbálás után három pontosítás:
+
+1. **Előről gomb archív lejátszás alatt.** A slot-szabály eddig lejátszás
+   alatt mindent a Stopra adott. Most archív Tilos-adás szólásakor (a
+   backend `tilos_key` jelölője, azaz `_playingInfo()`) az Előről is ott
+   marad a Stop mellett, hogy vissza lehessen ugrani az elejére. Az élő
+   adásnak nincs eleje, ott az Előről nem jön elő.
+
+   | állapot | slot |
+   |---|---|
+   | archív adás szól | `Előről · Stop` |
+   | élő stream szól | `Stop` |
+   | szünet/álló, mentett pozícióval | `Előről · Folytatás` |
+   | szünet/álló, mentett pozíció nélkül | `Lejátszás` |
+
+2. **Pulzálás színei.** A fel 10%-os piros a sötét témában nem látszik
+   (a gomb alapja a témában sötét). Az animáció most maga állítja a
+   hátteret: `#f2f2f2` (fehéres) → `#d68a80` (halvány vörös), a
+   mozgáscsökkentés mellett a `#d68a80` marad végig.
+
+3. **Prefix az élő fejlécszöveg elejére:** `Tilos ÉLŐ / előadó – cím`.
+   Az archív fejléc (`Műsor – Cím (dátum)`) változatlan.

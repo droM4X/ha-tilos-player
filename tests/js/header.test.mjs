@@ -25,7 +25,7 @@ test("élő fejléc: playing + stream.tilos.hu → logó és szöveg", () => {
   );
 
   assert.equal(info.image, LOGO);
-  assert.equal(info.text, "Kowalsky – Somewhere");
+  assert.equal(info.text, "Tilos ÉLŐ / Kowalsky – Somewhere");
 });
 
 test("élő fejléc: nem playing → null", () => {
@@ -81,7 +81,7 @@ test("élő fejléc: tartalom-id formafüggetlen", () => {
     LOGO,
   );
 
-  assert.equal(info.text, "Cím");
+  assert.equal(info.text, "Tilos ÉLŐ / Cím");
 });
 
 test("élő szöveg: csak előadó / csak cím / egyik sincs", () => {
